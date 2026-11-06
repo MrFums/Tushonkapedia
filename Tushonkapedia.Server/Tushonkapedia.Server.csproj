@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+    <!-- Server mod: serves the quest map page and the quest graph worked out from the server's own quest data. -->
+    <PropertyGroup>
+        <TargetFramework>net10.0</TargetFramework>
+        <RootNamespace>Tushonkapedia.Server</RootNamespace>
+        <AssemblyName>Tushonkapedia.Server</AssemblyName>
+        <ImplicitUsings>enable</ImplicitUsings>
+        <Nullable>enable</Nullable>
+        <OutputType>Library</OutputType>
+        <Version>1.0.0</Version>
+        <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+        <DebugType>none</DebugType>
+        <!-- Don't put this PC's folder path into the built DLL. -->
+        <PathMap>$(MSBuildProjectDirectory)=/_/</PathMap>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <PackageReference Include="SPTarkov.Common" Version="4.1.0" />
+        <PackageReference Include="SPTarkov.DI" Version="4.1.0" />
+        <PackageReference Include="SPTarkov.Server.Core" Version="4.1.0" />
+        <!-- Only for the wiki's link in the launcher's Mod Pages. -->
+        <PackageReference Include="SPTarkov.Server.Web" Version="4.1.0" />
+    </ItemGroup>
+
+</Project>

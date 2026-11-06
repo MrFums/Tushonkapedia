@@ -1,0 +1,5 @@
+# Mods whose item pictures ship in pack/ (their mod folder names, as the server names them). One a line.
+WTT-Armory
+WTT-ContentBackport
+WTT-PackNStrapServer
+WTT-Artem

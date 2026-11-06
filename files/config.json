@@ -1,0 +1,27 @@
+{
+  // Get the keys each quest needs from tarkov.dev. Needs internet now and then: the last keys fetched are saved
+  // in data\ and used when tarkov.dev can't be reached. These are the live game's keys, so a mod that moves a
+  // quest item behind another door isn't known. Add or correct entries in keys.json.
+  "tarkovDevKeys": true,
+  // use the internet at all. Off (the default): the item pictures, map drawings, bot pictures and quest keys the mod
+  // ships with are used, and nothing ever goes out. On: newer ones are fetched from tarkov.dev and saved in data\.
+  "useInternet": false,
+  // regular, pve or pvp-season
+  "tarkovDevGameMode": "pve",
+  // how often to fetch the keys again, in hours
+  "refreshHours": 24,
+  // show item pictures: each one is fetched from tarkov.dev the first time and saved in data\icons
+  "itemIcons": true,
+  // draw the item page's loot map over tarkov.dev's drawing of the map (CC BY-NC-SA 4.0), fetched the first time
+  // and saved in data\maps. Off, or for a map tarkov.dev has no drawing of, the map is outlined from its loot spots.
+  "mapImages": true,
+  // who may send the item pictures the game plugin draws (mod items have none on tarkov.dev):
+  // "lan" = this PC and your home network, "anyone", or "none". In Docker every player can look local, so use
+  // "none" there once the pictures are in.
+  "iconUploads": "lan",
+  // let the page list the profiles on this server and show their quest progress (read-only)
+  "showProfiles": true,
+  // who may start crafts and hideout upgrades from the page, for a character whose game is closed:
+  // "lan" = this PC and your home network, "anyone", or "none". In Docker every player can look local.
+  "hideoutActions": "lan"
+}

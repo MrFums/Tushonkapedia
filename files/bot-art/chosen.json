@@ -1,0 +1,78 @@
+{
+ "bossbully": {
+  "portrait": "x-reshala-portrait.webp",
+  "poster": "x-reshala-poster.webp"
+ },
+ "bosswedge": {
+  "portrait": "x-wedge-portrait.webp",
+  "poster": "x-wedge-poster.webp"
+ },
+ "bosszryachiy": {
+  "portrait": "x-zryachiy-portrait.webp",
+  "poster": "x-zryachiy-poster.webp"
+ },
+ "sectantoni": {
+  "portrait": "x-cultist-portrait.webp",
+  "poster": "x-cultists-poster.webp"
+ },
+ "cursedassault": {
+  "portrait": "x-cultist-portrait.webp",
+  "poster": "x-cultists-poster.webp"
+ },
+ "assault": {
+  "portrait": "x-scav-portrait.webp",
+  "poster": "x-scav-poster.webp"
+ },
+ "marksman": {
+  "portrait": "x-scav-sniper-portrait.webp",
+  "poster": "x-scav-sniper-poster.webp"
+ },
+ "crazyassaultevent": {
+  "portrait": "x-crazed-scav-portrait.webp",
+  "poster": "x-crazed-scav-poster.webp"
+ },
+ "bear": {
+  "portrait": "x-bear-portrait.webp",
+  "poster": "x-bear-poster.webp"
+ },
+ "pmcusec": {
+  "portrait": "x-usec-portrait.webp",
+  "poster": "x-usec-poster.webp"
+ },
+ "followerzryachiy": {
+  "portrait": "x-zryachiy-guard-portrait.webp",
+  "poster": "x-zryachiy-guard-poster.webp"
+ },
+ "ravangezryachiyevent": {
+  "portrait": "x-zryachiy-guard-portrait.webp",
+  "poster": "x-zryachiy-guard-poster.webp"
+ },
+ "arenafighterevent": {
+  "portrait": "x-bloodhound-portrait.webp",
+  "poster": "x-bloodhound-poster.webp"
+ },
+ "sectantpriest": {
+  "portrait": "x-cultist-priest-portrait.webp",
+  "poster": "x-cultists-poster.webp"
+ },
+ "infectedassault": {
+  "portrait": "x-infected-civilian-portrait.webp",
+  "poster": "x-infected-civilian-poster.webp"
+ },
+ "infectedcivil": {
+  "portrait": "x-infected-civilian-portrait.webp",
+  "poster": "x-infected-civilian-poster.webp"
+ },
+ "infectedlaborant": {
+  "portrait": "x-infected-lab-portrait.webp",
+  "poster": "x-infected-lab-poster.webp"
+ },
+ "infectedpmc": {
+  "portrait": "x-infected-pmc-portrait.webp",
+  "poster": "x-infected-pmc-poster.webp"
+ },
+ "infectedtagilla": {
+  "portrait": "x-infected-tagilla-portrait.webp",
+  "poster": "x-infected-tagilla-poster.webp"
+ }
+}

@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tushonkapedia</title>
+<link rel="icon" href="icon.svg">
+<meta name="color-scheme" content="dark">
+<link rel="stylesheet" href="tushonkapedia.css">
+<style id="marks"></style>
+</head>
+<body>
+<header>
+  <div class="bar">
+    <a class="brand" role="link" tabindex="0" title="Main page">
+      <img src="icon.svg" alt="">
+      <h1>Tushonka<span class="g">pedia</span><span class="ver" id="version"></span></h1>
+    </a>
+    <div class="search">
+      <input id="search" type="search" placeholder="Search" autocomplete="off" aria-label="Search quests and items">
+      <div class="search-results" id="searchResults" hidden></div>
+    </div>
+    <label class="pick" id="profilePick" hidden>
+      <span>Profile</span>
+      <select id="profile"><option value="">All quests</option></select>
+    </label>
+    <div class="menu" id="menu">
+      <button class="btn" id="menuButton" aria-haspopup="true" aria-expanded="false">Options ▾</button>
+      <div class="menu-list">
+        <label class="opt"><span class="sw kappa"></span><span class="t">Kappa quests</span><input type="checkbox" data-pref="kappa"></label>
+        <label class="opt"><span class="sw lk"></span><span class="t">Lightkeeper quests</span><input type="checkbox" data-pref="lk"></label>
+        <label class="opt"><span class="sw lockout"></span><span class="t">Lock-out quests</span><input type="checkbox" data-pref="lockout"></label>
+        <label class="opt"><span class="sw reward"></span><span class="t">Great rewards</span><input type="checkbox" data-pref="reward"></label>
+        <hr>
+        <label class="opt"><span class="t">Always show all quest details</span><input type="checkbox" data-pref="showHints"></label>
+        <hr>
+        <label class="opt" id="langRow" hidden><span class="t">Language</span><select id="langPick"></select></label>
+        <hr>
+        <button id="editsLink" hidden>Turn on character changes…</button>
+        <button id="passwordLink" hidden>Password…</button>
+        <button id="logoutLink" hidden>Log out of this character</button>
+        <button id="reload">Reload quest data</button>
+        <button id="kindsLink">Test items</button>
+      </div>
+    </div>
+  </div>
+  <nav id="nav" aria-label="Sections"></nav>
+</header>
+
+<main id="main">
+  <section id="page"><div class="loading">Loading quests from the server…</div></section>
+</main>
+
+<footer id="footer"></footer>
+
+<script src="tushonkapedia.mjs"></script>
+</body>
+</html>

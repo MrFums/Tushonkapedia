@@ -1,0 +1,6 @@
+{
+  "_about": "Keys a quest needs, by quest id. An entry here replaces tarkov.dev's keys for that quest. keys: item ids, any one of which will do. map: a map id or name (optional). objective: the objective's condition id, to show the key under that objective (optional). note: shown next to the key (optional). Keys starting with _ are ignored.",
+  "_example_5a68663e86f774501078f78a": [
+    { "keys": ["5a13f46386f7741dd7384b04"], "map": "Shoreline", "note": "Room 306 in the resort" }
+  ]
+}

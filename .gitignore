@@ -1,0 +1,16 @@
+# Build output
+bin/
+obj/
+dist/
+
+# Built by tools/build_pack.py from a running server
+pack/
+
+# Your SPT folder, for build.ps1
+spt-path.txt
+
+# Editor settings
+.vs/
+.vscode/
+*.user
+__pycache__/
