@@ -1,6 +1,7 @@
 using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Threading.Tasks;
 using BepInEx.Configuration;
 using Comfort.Common;
@@ -92,6 +93,10 @@ namespace Tushonkapedia.Client
         // one kind of thing a frame, so looking them up never stalls the raid
         private static IEnumerator Scan(string map, GameWorld world)
         {
+            // work done on the game's own frames, and the whole time until the server has it
+            var frames = new Stopwatch();
+            var total = Stopwatch.StartNew();
+            frames.Start();
             var boxes = new Dictionary<string, float[]>();
             var types = new Dictionary<string, string>();
             foreach (var box in UnityEngine.Object.FindObjectsOfType<LootableContainer>())
@@ -106,11 +111,14 @@ namespace Tushonkapedia.Client
                 }
             }
 
+            frames.Stop();
             yield return null;
             if (Singleton<GameWorld>.Instance != world)
             {
                 yield break;
             }
+
+            frames.Start();
 
             // doors, safes, car trunks... anything with a key
             var locks = new Dictionary<string, List<float[]>>();
@@ -129,11 +137,14 @@ namespace Tushonkapedia.Client
                 list.Add(At(thing.transform.position));
             }
 
+            frames.Stop();
             yield return null;
             if (Singleton<GameWorld>.Instance != world)
             {
                 yield break;
             }
+
+            frames.Start();
 
             // the places quests send you: the middle of each trigger's area
             var zones = new Dictionary<string, List<float[]>>();
@@ -153,11 +164,14 @@ namespace Tushonkapedia.Client
                 list.Add(At(area != null ? area.bounds.center : trigger.transform.position));
             }
 
+            frames.Stop();
             yield return null;
             if (Singleton<GameWorld>.Instance != world)
             {
                 yield break;
             }
+
+            frames.Start();
 
             // the extracts, by their name (the Scavs' ones too)
             var exits = new Dictionary<string, List<float[]>>();
@@ -177,18 +191,23 @@ namespace Tushonkapedia.Client
                 list.Add(At(exit.transform.position));
             }
 
-            Plugin.Log.LogInfo($"{map}: {boxes.Count} containers, {locks.Count} keys' locks, {zones.Count} quest places, {exits.Count} extracts.");
             var json = JsonConvert.SerializeObject(new { map, boxes, types, locks, zones, exits });
+            frames.Stop();
             var send = Task.Run(() => RequestHandler.PostJson(Route, json));
             while (!send.IsCompleted)
             {
                 yield return null;
             }
 
+            total.Stop();
             if (send.IsFaulted)
             {
                 Plugin.Log.LogWarning($"Couldn't send the places on {map}: {send.Exception?.GetBaseException().Message}");
+                yield break;
             }
+
+            Plugin.Log.LogInfo($"{map}: {boxes.Count} containers, {locks.Count} keys' locks, {zones.Count} quest places, {exits.Count} extracts. "
+                + $"Looked up in {frames.Elapsed.TotalMilliseconds:0.0} ms over 4 frames, sent in {total.Elapsed.TotalSeconds:0.00} s.");
         }
     }
 }
