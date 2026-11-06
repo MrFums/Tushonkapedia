@@ -39,7 +39,7 @@ public sealed partial class MapArt(ISptLogger<WikiRoute> logger, string folder, 
 
     private string Folder => Path.Combine(folder, "data", "maps");
     // the drawings, tiles (WebP) and layout the mod ships with, so maps are drawn with no internet
-    private string Pack => Path.Combine(folder, "pack", "maps");
+    private PackFiles Packed => PackFiles.In(folder);
 
     // the drawing for a map with this English name, or null
     public async Task<Art?> For(string? name, CancellationToken cancellationToken)
@@ -79,11 +79,9 @@ public sealed partial class MapArt(ISptLogger<WikiRoute> logger, string folder, 
         }
 
         // the tiles the mod ships with
-        var packed = Path.Combine(Pack, art.Key, floor.ToString(), z.ToString(), $"{x}-{y}.webp");
-        if (File.Exists(packed))
+        if (Packed.Bytes($"maps/{art.Key}/{floor}/{z}/{x}-{y}.webp") is { } packed)
         {
-            var saved = await File.ReadAllBytesAsync(packed, cancellationToken);
-            return saved.Length > 0 ? saved : null;
+            return packed.Length > 0 ? packed : null;
         }
 
         if (!online)
@@ -128,10 +126,9 @@ public sealed partial class MapArt(ISptLogger<WikiRoute> logger, string folder, 
             return await File.ReadAllBytesAsync(file, cancellationToken);
         }
 
-        var packed = Path.Combine(Pack, art.Key + ".svg");
-        if (File.Exists(packed))
+        if (Packed.Bytes($"maps/{art.Key}.svg") is { } packed)
         {
-            return await File.ReadAllBytesAsync(packed, cancellationToken);
+            return packed;
         }
 
         if (!online)
@@ -179,9 +176,8 @@ public sealed partial class MapArt(ISptLogger<WikiRoute> logger, string folder, 
             }
 
             var file = Path.Combine(Folder, CalibrationFile);
-            var packed = Path.Combine(Pack, CalibrationFile);
             var saved = File.Exists(file) ? Read(await File.ReadAllTextAsync(file, cancellationToken))
-                : File.Exists(packed) ? Read(await File.ReadAllTextAsync(packed, cancellationToken)) : null;
+                : Packed.Text("maps/" + CalibrationFile) is { } packed ? Read(packed) : null;
             if (!online)
             {
                 return _maps = saved;

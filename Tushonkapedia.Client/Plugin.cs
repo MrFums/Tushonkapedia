@@ -73,11 +73,23 @@ namespace Tushonkapedia.Client
             MenuWork = Config.Bind("General", "Fill in missing pictures", true,
                 "In the main menu, draw the pictures of items Tushonkapedia has none for (mostly mod items), and measure the pockets "
                 + "of rigs and backpacks it hasn't seen, so its pages match your game. Runs once per item; turn off to skip it.");
-            StartCoroutine(Run());
-            Portrait.Start(this, Config);
+            // A game with no graphics (a Fika headless host) can't draw: its pictures would come out blank. It has no
+            // player at its menus either, so nothing for the wiki to do through it. It still records map places (it
+            // hosts the raids); the menu work is left to the players' games.
+            var drawing = SystemInfo.graphicsDeviceType != UnityEngine.Rendering.GraphicsDeviceType.Null;
+            if (drawing)
+            {
+                StartCoroutine(Run());
+                Portrait.Start(this, Config);
+                Tunnel.Start(this, Config);
+                Layouts.Start(this, Config);
+            }
+            else
+            {
+                Log.LogInfo("No graphics (a headless game): only recording map places for Tushonkapedia; pictures and the rest are left to the players' games.");
+            }
+
             Places.Start(this, Config);
-            Tunnel.Start(this, Config);
-            Layouts.Start(this, Config);
         }
 
         private IEnumerator Run()
@@ -91,27 +103,49 @@ namespace Tushonkapedia.Client
 
             yield return new WaitForSeconds(10f);
 
-            var ask = Task.Run(() => RequestHandler.GetJson(WantedRoute));
-            while (!ask.IsCompleted)
+            // With other players on the server, the server hands each game the pictures nobody else is drawing. One
+            // that stops halfway (closed, or went into a raid) lets its share go after a while, so this game asks
+            // again now and then and draws what was left. Each item is tried once per game start.
+            var tried = new HashSet<string>();
+            while (true)
             {
-                yield return null;
-            }
+                while (InRaid || !_enabled.Value)
+                {
+                    yield return new WaitForSeconds(5f);
+                }
 
-            List<string> wanted = null;
-            try
-            {
-                wanted = JsonConvert.DeserializeObject<List<string>>(ask.Result);
-            }
-            catch (Exception e)
-            {
-                Log.LogInfo($"Tushonkapedia isn't on this server, or didn't answer ({e.GetBaseException().Message}). No pictures drawn.");
-            }
+                var ask = Task.Run(() => RequestHandler.GetJson(WantedRoute));
+                while (!ask.IsCompleted)
+                {
+                    yield return null;
+                }
 
-            if (wanted == null || wanted.Count == 0)
-            {
-                yield break;
-            }
+                List<string> wanted = null;
+                try
+                {
+                    wanted = JsonConvert.DeserializeObject<List<string>>(ask.Result);
+                }
+                catch (Exception e)
+                {
+                    Log.LogInfo($"Tushonkapedia isn't on this server, or didn't answer ({e.GetBaseException().Message}). No pictures drawn.");
+                    yield break;
+                }
 
+                wanted = (wanted ?? new List<string>()).Where(tried.Add).ToList();
+                if (wanted.Count > 0)
+                {
+                    yield return Draw(wanted);
+                }
+
+                yield return new WaitForSecondsRealtime(AskAgain);
+            }
+        }
+
+        // a little over the time the server holds another game's share
+        private const float AskAgain = 11 * 60f;
+
+        private IEnumerator Draw(List<string> wanted)
+        {
             Log.LogInfo($"Drawing {wanted.Count} item pictures for Tushonkapedia.");
             var drawn = new Dictionary<string, string>();
             var sent = 0;

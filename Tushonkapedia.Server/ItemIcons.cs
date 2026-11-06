@@ -10,7 +10,7 @@ namespace Tushonkapedia.Server;
 //   data/icons/<id>.webp  fetched from tarkov.dev the first time it's asked for, so it's there next time offline
 // Items with neither are remembered in data/icons/none.txt, so tarkov.dev isn't asked again and the plugin
 // knows to draw them.
-//   pack/icons/<id>.webp  the base-game pictures the mod ships with, so there are pictures with no internet at all
+//   icons/<id>.webp in pack.zip  the base-game pictures the mod ships with, so there are pictures with no internet at all
 public sealed partial class ItemIcons(ISptLogger<WikiRoute> logger, string folder, bool online)
 {
     private const string Source = "https://assets.tarkov.dev/{0}-icon.webp";
@@ -25,7 +25,8 @@ public sealed partial class ItemIcons(ISptLogger<WikiRoute> logger, string folde
     private bool _loaded;
 
     private string Folder => Path.Combine(folder, "data", "icons");
-    private string Pack => Path.Combine(folder, "pack", "icons");
+    // the pictures the mod ships with (pack.zip)
+    private PackFiles Packed => PackFiles.In(folder);
 
     // whether tarkov.dev may be asked (useInternet in config.json)
     public bool Online => online;
@@ -99,8 +100,7 @@ public sealed partial class ItemIcons(ISptLogger<WikiRoute> logger, string folde
             return new Picture(await File.ReadAllBytesAsync(png, cancellationToken), "image/png");
         }
 
-        var packed = Path.Combine(Pack, id + ".webp");
-        return File.Exists(packed) && PrintOf(packed) != null ? new Picture(await File.ReadAllBytesAsync(packed, cancellationToken), "image/webp") : null;
+        return Packed.Has($"icons/{id}.print") && Packed.Bytes($"icons/{id}.webp") is { } packed ? new Picture(packed, "image/webp") : null;
     }
 
     private async Task<Picture?> Saved(string id, CancellationToken cancellationToken)
@@ -116,8 +116,7 @@ public sealed partial class ItemIcons(ISptLogger<WikiRoute> logger, string folde
             return new Picture(await File.ReadAllBytesAsync(webp, cancellationToken), "image/webp");
         }
 
-        var packed = Path.Combine(Pack, id + ".webp");
-        return File.Exists(packed) ? new Picture(await File.ReadAllBytesAsync(packed, cancellationToken), "image/webp") : null;
+        return Packed.Bytes($"icons/{id}.webp") is { } packed ? new Picture(packed, "image/webp") : null;
     }
 
     // Whether the game has drawn a picture of the item that still matches it. The game plugin draws every item
@@ -127,9 +126,9 @@ public sealed partial class ItemIcons(ISptLogger<WikiRoute> logger, string folde
     // kept has none: the pack's print for the item, when it has one, says whether the item has changed since.
     public bool HasDrawn(string id, string print)
     {
-        var packed = Path.Combine(Pack, id + ".webp");
-        var packPrint = PrintOf(packed);
-        return Current(Path.Combine(Folder, id + ".png"), print, packPrint) || packPrint != null && Current(packed, print);
+        var packPrint = Packed.Text($"icons/{id}.print")?.Trim();
+        return Current(Path.Combine(Folder, id + ".png"), print, packPrint)
+               || packPrint != null && Packed.Has($"icons/{id}.webp") && (print.Length == 0 || packPrint == print);
     }
 
     private static string? PrintOf(string picture)

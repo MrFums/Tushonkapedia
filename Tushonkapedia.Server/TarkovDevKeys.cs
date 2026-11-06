@@ -140,12 +140,8 @@ public sealed class TarkovDevKeys(ISptLogger<WikiRoute> logger, string folder, M
         {
             // what was fetched last, else the copy the mod ships with
             var file = Path.Combine(folder, "data", CacheFile);
-            if (!File.Exists(file))
-            {
-                file = Path.Combine(folder, "pack", CacheFile);
-            }
-
-            return File.Exists(file) ? JsonSerializer.Deserialize<Saved>(File.ReadAllText(file), Json) : null;
+            var text = File.Exists(file) ? File.ReadAllText(file) : PackFiles.In(folder).Text(CacheFile);
+            return text != null ? JsonSerializer.Deserialize<Saved>(text, Json) : null;
         }
         catch (Exception ex)
         {

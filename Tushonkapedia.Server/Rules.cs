@@ -630,8 +630,7 @@ public sealed partial class ItemWiki
     {
         try
         {
-            var file = Path.Combine(folder, "pack", "skill-effects.json");
-            return File.Exists(file) ? JsonNode.Parse(File.ReadAllText(file)) : null;
+            return PackFiles.In(folder).Text("skill-effects.json") is { } text ? JsonNode.Parse(text) : null;
         }
         catch (Exception ex) when (ex is IOException or System.Text.Json.JsonException)
         {

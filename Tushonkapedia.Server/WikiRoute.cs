@@ -62,7 +62,8 @@ public class WikiRoute(ISptLogger<WikiRoute> logger, TemplateTable templates, Lo
     BotTable bots, AirdropConfig airdropConfig, QuestConfig questConfig, QuestHelper questHelper, SeasonalEventService seasons,
     SeasonalEventConfig seasonConfig, RagfairPriceService ragfairPrices, PresetHelper presets, IReadOnlyList<SptMod> loadedMods,
     HideoutActions hideoutActions, InsuranceConfig insuranceConfig, RagfairConfig ragfairConfig, RepairConfig repairConfig,
-    TraderConfig traderConfig, HideoutConfig hideoutConfig, ItemConfig itemConfig, LocaleTable localeTable, PmcConfig pmcConfig, BundleLoader bundleLoader)
+    TraderConfig traderConfig, HideoutConfig hideoutConfig, ItemConfig itemConfig, LocaleTable localeTable, PmcConfig pmcConfig, BundleLoader bundleLoader,
+    SPTarkov.Server.Core.Services.Image.ImageRouterService images)
     : IHttpListener
 {
     public const string Root = "/wiki";
@@ -220,6 +221,8 @@ public class WikiRoute(ISptLogger<WikiRoute> logger, TemplateTable templates, Lo
     private Locks? _locks;
     private Locks LockStore => _locks ??= new Locks(Folder);
 
+    public string? PackProblem => PackFiles.In(Folder).Problem;
+
     private bool IsProfile(string id) => MongoId.IsValidMongoId(id) && saveServer.GetProfiles().Any(p => p.Key.ToString() == id);
 
     // reads config.json and starts getting keys from tarkov.dev
@@ -266,6 +269,7 @@ public class WikiRoute(ISptLogger<WikiRoute> logger, TemplateTable templates, Lo
                     return;
                 }
 
+                IconClaims.Renew(sessionId.ToString());
                 await SendJson(context, new { saved = await SaveIcons(context, cancellationToken) }, cancellationToken);
                 return;
             }
@@ -469,9 +473,11 @@ public class WikiRoute(ISptLogger<WikiRoute> logger, TemplateTable templates, Lo
                         : null;
                     // a tile tarkov.dev doesn't have is empty map, and asked for again on every view: it's cached too
                     context.Response.Headers.CacheControl = "max-age=604800";
+                    // no tile here: 204, not 404, since SPT writes an "[UNHANDLED]" error for every 404 and the map's
+                    // edges are mostly empty tiles; the page's picture fails to load either way
                     if (tile == null)
                     {
-                        context.Response.StatusCode = 404;
+                        context.Response.StatusCode = 204;
                         return;
                     }
 
@@ -479,6 +485,23 @@ public class WikiRoute(ISptLogger<WikiRoute> logger, TemplateTable templates, Lo
                     context.Response.ContentType = tile.Length > 4 && tile[0] == 'R' && tile[1] == 'I' && tile[2] == 'F' && tile[3] == 'F' ? "image/webp" : "image/png";
                     context.Response.Headers["X-Content-Type-Options"] = "nosniff";
                     await context.Response.Body.WriteAsync(tile, cancellationToken);
+                    return;
+                }
+                case "api/banner":
+                {
+                    // the launcher's picture of the map, from the pictures SPT (and any mod) has registered
+                    var file = BannerFile(query["map"].ToString().Trim());
+                    if (file == null || !File.Exists(file))
+                    {
+                        // none: 204, so SPT doesn't log the miss as an error; the page drops the picture
+                        context.Response.Headers.CacheControl = "max-age=86400";
+                        context.Response.StatusCode = 204;
+                        return;
+                    }
+
+                    context.Response.Headers.CacheControl = "max-age=604800";
+                    context.Response.ContentType = Path.GetExtension(file).ToLowerInvariant() is ".jpg" or ".jpeg" ? "image/jpeg" : "image/png";
+                    await context.Response.SendFileAsync(file, cancellationToken);
                     return;
                 }
                 case "api/mapsvg":
@@ -710,14 +733,19 @@ public class WikiRoute(ISptLogger<WikiRoute> logger, TemplateTable templates, Lo
                 case "api/layouts/wanted":
                     await SendJson(context, MayUpload(context, true) ? Wiki.LayoutsWanted() : [], cancellationToken);
                     return;
+                // several players in one raid: only the first game to ask records the map
                 case "api/places/wanted":
-                    await SendJson(context, new { wanted = MayUpload(context, true) && Wiki.PlacesWanted(query["map"].ToString()) }, cancellationToken);
+                {
+                    var map = query["map"].ToString();
+                    await SendJson(context, new { wanted = MayUpload(context, true) && Wiki.PlacesWanted(map) && PlaceClaims.Take(sessionId.ToString(), [map]).Count > 0 }, cancellationToken);
                     return;
+                }
                 case "api/icons/prints":
                     await SendJson(context, Wiki.IconPrints(), cancellationToken);
                     return;
                 case "api/icons/wanted":
-                    await SendJson(context, Config.ItemIcons && MayUpload(context, true) ? Wiki.IconsWanted(Icons) : [], cancellationToken);
+                    // several players' games: each draws a share, not all of them the same pictures
+                    await SendJson(context, Config.ItemIcons && MayUpload(context, true) ? IconClaims.Take(sessionId.ToString(), Wiki.IconsWanted(Icons)) : [], cancellationToken);
                     return;
                 case var icon when icon.StartsWith("icon/"):
                 {
@@ -736,9 +764,10 @@ public class WikiRoute(ISptLogger<WikiRoute> logger, TemplateTable templates, Lo
                         twin = picture != null;
                     }
 
+                    // no picture: 204, not 404 (SPT logs every 404 as an error); the page shows the item's short name
                     if (picture == null)
                     {
-                        context.Response.StatusCode = 404;
+                        context.Response.StatusCode = 204;
                         return;
                     }
 
@@ -876,6 +905,11 @@ public class WikiRoute(ISptLogger<WikiRoute> logger, TemplateTable templates, Lo
 
     private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, bool> _refused = new();
 
+    // a game sends its pictures every couple of minutes while drawing; one that stops for 10 minutes (closed, or in a
+    // raid) lets its share go. A map's places take a few seconds to send.
+    private static readonly Claims IconClaims = new(TimeSpan.FromMinutes(10));
+    private static readonly Claims PlaceClaims = new(TimeSpan.FromMinutes(5));
+
     // Starting a craft or an upgrade: players on this PC or the home network by default (config.json's
     // hideoutActions), and only from the page itself: it sends a header a form on another site can't, so a page
     // elsewhere can't make the browser do it.
@@ -901,7 +935,7 @@ public class WikiRoute(ISptLogger<WikiRoute> logger, TemplateTable templates, Lo
         return allowed;
     }
 
-    // POST api/hideout/craft {profile, recipe}, api/hideout/upgrade {profile, area}, api/hideout/handin {profile, area};
+    // POST api/hideout/craft {profile, recipe}, api/hideout/upgrade {profile, area};
     // api/wishlist/add, /group {profile, item, group}, api/wishlist/remove {profile, item}
     private async Task HideoutAction(HttpContext context, string action, CancellationToken cancellationToken)
     {
@@ -948,7 +982,6 @@ public class WikiRoute(ISptLogger<WikiRoute> logger, TemplateTable templates, Lo
             "lock-clear" => LockStore.Clear(profile, Text("current")),
             "craft" => await hideoutActions.Craft(profile, Text("recipe")),
             "upgrade" => await hideoutActions.Upgrade(profile, area),
-            "handin" => await hideoutActions.HandIn(profile, area),
             "stash-sell" => await hideoutActions.Sell(profile, Text("item"), Text("trader"), int.TryParse(Text("count"), out var sellCount) ? sellCount : 0),
             "stash-repair" => await hideoutActions.Repair(profile, Text("item"), Text("trader")),
             // only an item the game knows by name
@@ -1339,6 +1372,15 @@ public class WikiRoute(ISptLogger<WikiRoute> logger, TemplateTable templates, Lo
         var list = new List<object>();
         foreach (var (id, profile) in saveServer.GetProfiles())
         {
+            // nothing in the stash: not anyone's character (a Fika headless host's profile, or one whose character
+            // isn't made yet), so nothing to show
+            var inventory = profile?.CharacterData?.PmcData?.Inventory;
+            var stash = inventory?.Stash?.ToString();
+            if (stash == null || inventory!.Items?.Any(i => i.ParentId == stash) != true)
+            {
+                continue;
+            }
+
             var info = profile?.CharacterData?.PmcData?.Info;
             list.Add(new
             {
@@ -1613,6 +1655,22 @@ public class WikiRoute(ISptLogger<WikiRoute> logger, TemplateTable templates, Lo
         return supported.Contains(game) ? game : "en";
     }
 
+    // The launcher's banner for a map: banner_<map id>, else the same without its last "_part" (factory4_day is
+    // banner_factory4), from SPT's own list of pictures it serves, so a mod's registered banner counts too.
+    private string? BannerFile(string map)
+    {
+        for (var name = map; name.Length > 0; name = name.LastIndexOf('_') is > 0 and var cut ? name[..cut] : "")
+        {
+            var key = ("/files/banners/banner_" + name).ToLowerInvariant();
+            if (images.ExistsByKey(key))
+            {
+                return images.GetByKey(key);
+            }
+        }
+
+        return null;
+    }
+
     private static Task SendJson(HttpContext context, object body, CancellationToken cancellationToken)
     {
         context.Response.ContentType = "application/json; charset=utf-8";
@@ -1656,6 +1714,11 @@ public class WikiStartup(ISptLogger<WikiStartup> logger, WikiRoute route, HttpCo
 {
     public Task OnLoadAsync(CancellationToken cancellationToken)
     {
+        if (route.PackProblem is { } problem)
+        {
+            logger.Warning($"[Tushonkapedia] Couldn't read pack.zip ({problem}). Pictures and map drawings come from data\\ or tarkov.dev instead; extract the mod's zip again to fix it.");
+        }
+
         try
         {
             route.Start();
@@ -1665,6 +1728,16 @@ public class WikiStartup(ISptLogger<WikiStartup> logger, WikiRoute route, HttpCo
         catch (Exception ex)
         {
             logger.Warning($"[Tushonkapedia] Couldn't build the quest graph yet: {ex.Message}");
+        }
+
+        // a newer or older SPT may have moved the request log: then the wiki's requests are just logged as before
+        try
+        {
+            new QuietRequests().Enable();
+        }
+        catch (Exception ex)
+        {
+            logger.Debug($"[Tushonkapedia] Couldn't quiet the wiki's request lines: {ex.Message}");
         }
 
         logger.Success($"[Tushonkapedia] Open it at https://127.0.0.1:{http.Port}{WikiRoute.Root}/");

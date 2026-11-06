@@ -18,6 +18,8 @@
     <ItemGroup>
         <PackageReference Include="SPTarkov.Common" Version="4.1.0" />
         <PackageReference Include="SPTarkov.DI" Version="4.1.0" />
+        <!-- Only to keep the wiki's own requests out of SPT's request log (QuietRequests). -->
+        <PackageReference Include="SPTarkov.Reflection" Version="4.1.0" />
         <PackageReference Include="SPTarkov.Server.Core" Version="4.1.0" />
         <!-- Only for the wiki's link in the launcher's Mod Pages. -->
         <PackageReference Include="SPTarkov.Server.Web" Version="4.1.0" />

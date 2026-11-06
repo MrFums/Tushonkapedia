@@ -31,8 +31,7 @@ namespace Tushonkapedia.Server;
 // a craft or an upgrade needs before it asks the server, and the server trusts it; here the page asks, so every
 // check the game makes is made first: the area's level, the area being free, the recipe unlocked, the quest done,
 // the trader levels and skills, and the items, from the stash only, found in raid where it says so. Then SPT's own
-// handlers do the work, the same ones the game calls, so a mod that changes them (Hideout in Progress clears its
-// handed-in items when an upgrade starts) works as it does in game. The game picks it all up when it next logs in.
+// handlers do the work, the same ones the game calls, so a mod that changes them works as it does in game. The game picks it all up when it next logs in.
 //
 // Never behind the back of a running game: it holds its own copy of the hideout and would overwrite what the page did.
 // With the game plugin there, the action goes through the game instead (see the tunnel below), the way pressing the
@@ -40,13 +39,8 @@ namespace Tushonkapedia.Server;
 [Injectable(InjectionType.Singleton)]
 public class HideoutActions(ISptLogger<HideoutActions> logger, HideoutTable hideout, HideoutController controller, ProfileHelper profiles, InventoryHelper inventory,
     TradeController trading, RepairController repairing, TraderHelper traderHelper, HandbookHelper handbook, ItemHelper itemHelper, RepairConfig repairConfig,
-    SaveServer saveServer, PaymentHelper payments, WishlistController wishlist, EventOutputHolder outputs, SptWebSocketConnectionHandler sockets, ProfileActivityService activity,
-    IEnumerable<StaticRouter> routers)
+    SaveServer saveServer, PaymentHelper payments, WishlistController wishlist, EventOutputHolder outputs, SptWebSocketConnectionHandler sockets, ProfileActivityService activity)
 {
-    // Hideout in Progress's routes: what's been handed in towards each upgrade, and handing more in
-    private const string HipLoad = "/hip/load";
-    private const string HipContribute = "/hip/contribute";
-
     private readonly Lock _lock = new();
 
     // ---------- the tunnel ----------
@@ -165,46 +159,6 @@ public class HideoutActions(ISptLogger<HideoutActions> logger, HideoutTable hide
         return activity.ActiveWithinLastMinutes(id, 1)
             ? "The game was talking to the server under a minute ago. Wait a minute after closing it, then try again."
             : null;
-    }
-
-    private StaticRouter? Hip(string url) => routers.FirstOrDefault(r => r.CanHandle(url));
-
-    public bool HasHip => Hip(HipLoad) != null;
-
-    // area -> item -> how many are handed in, from Hideout in Progress; empty without it
-    private Dictionary<int, Dictionary<string, int>> HandedIn(MongoId id)
-    {
-        if (Hip(HipLoad) is not { } router)
-        {
-            return [];
-        }
-
-        try
-        {
-            var result = router.HandleStaticAsync(HipLoad, null, id, "").AsTask().GetAwaiter().GetResult();
-            var json = result as string ?? JsonSerializer.Serialize(result);
-            var parsed = JsonSerializer.Deserialize<Dictionary<string, Dictionary<string, int>>>(json) ?? [];
-            var byArea = new Dictionary<int, Dictionary<string, int>>();
-            foreach (var (area, items) in parsed)
-            {
-                // the area comes as its number or its name, as the mod's JSON settings write it
-                if (int.TryParse(area, out var type))
-                {
-                    byArea[type] = items;
-                }
-                else if (Enum.TryParse<HideoutAreas>(area, true, out var named))
-                {
-                    byArea[(int)named] = items;
-                }
-            }
-
-            return byArea;
-        }
-        catch (Exception e)
-        {
-            logger.Warning($"[Tushonkapedia] Couldn't read Hideout in Progress's handed-in items: {e.Message}");
-            return [];
-        }
     }
 
     // ---------- what the character has ----------
@@ -709,9 +663,8 @@ public class HideoutActions(ISptLogger<HideoutActions> logger, HideoutTable hide
         return missing.Count > 0 ? "missing:" + string.Join(',', missing) : null;
     }
 
-    // What stops the next level of an area, or null when it can start. `handedIn` takes off what Hideout in
-    // Progress already has towards it.
-    private string? UpgradeBlock(PmcData pmc, int type, Dictionary<string, int> handedIn, List<(Item Item, int Count)> stash, out List<HideoutItem> items)
+    // What stops the next level of an area, or null when it can start.
+    private string? UpgradeBlock(PmcData pmc, int type, List<(Item Item, int Count)> stash, out List<HideoutItem> items)
     {
         items = [];
         var area = (pmc.Hideout?.Areas ?? []).FirstOrDefault(a => a != null && (int)a.Type == type);
@@ -755,7 +708,7 @@ public class HideoutActions(ISptLogger<HideoutActions> logger, HideoutTable hide
         foreach (var need in (stage.Requirements ?? []).Where(r => r.Type == "Item"))
         {
             var tpl = need.TemplateId.ToString();
-            var count = Math.Max(0, (need.Count ?? 1) - handedIn.GetValueOrDefault(tpl));
+            var count = need.Count ?? 1;
             if (count == 0)
             {
                 continue;
@@ -787,9 +740,8 @@ public class HideoutActions(ISptLogger<HideoutActions> logger, HideoutTable hide
 
         var mongo = new MongoId(id);
         var stash = Stash(pmc);
-        var handed = HandedIn(mongo);
         var area = (pmc.Hideout?.Areas ?? []).FirstOrDefault(a => a != null && (int)a.Type == type);
-        var upgradeWhy = UpgradeBlock(pmc, type, handed.GetValueOrDefault(type) ?? [], stash, out _);
+        var upgradeWhy = UpgradeBlock(pmc, type, stash, out _);
         var running = Running(pmc, type);
         var production = running == null ? null : pmc.Hideout!.Production![running.Id];
         var crafts = new Dictionary<string, object>();
@@ -809,19 +761,17 @@ public class HideoutActions(ISptLogger<HideoutActions> logger, HideoutTable hide
         {
             busy = Blocked(mongo),
             viaGame = GameListening(id),
-            hip = HasHip,
             level = area?.Level ?? 0,
             constructing = area?.Constructing == true,
             completeTime = area?.Constructing == true ? area.CompleteTime : null,
             upgrade = new
             {
                 why = upgradeWhy,
-                // what each item of the next level needs, has, and has handed in
+                // what each item of the next level needs, and what the stash has
                 items = (next?.Requirements ?? []).Where(r => r.Type == "Item").Select(r => new
                 {
                     id = r.TemplateId.ToString(), count = r.Count ?? 1, fir = r.IsSpawnedInSession == true,
-                    have = Have(stash, r.TemplateId.ToString(), r.IsSpawnedInSession == true),
-                    handedIn = handed.GetValueOrDefault(type)?.GetValueOrDefault(r.TemplateId.ToString()) ?? 0
+                    have = Have(stash, r.TemplateId.ToString(), r.IsSpawnedInSession == true)
                 })
             },
             crafting = running == null ? null : new
@@ -950,7 +900,7 @@ public class HideoutActions(ISptLogger<HideoutActions> logger, HideoutTable hide
             }
 
             var stash = Stash(pmc);
-            if (UpgradeBlock(pmc, type, HandedIn(mongo).GetValueOrDefault(type) ?? [], stash, out var items) is { } why)
+            if (UpgradeBlock(pmc, type, stash, out var items) is { } why)
             {
                 return new { ok = false, why };
             }
@@ -995,62 +945,6 @@ public class HideoutActions(ISptLogger<HideoutActions> logger, HideoutTable hide
         await saveServer.SaveProfileAsync(mongo);
         logger.Info($"[Tushonkapedia] Started upgrading hideout area {(HideoutAreas)type} for {pmc.Info?.Nickname} from the page.");
         return new { ok = true };
-    }
-
-    // Hands what the stash has towards an area's next level to Hideout in Progress, through its own route.
-    public async Task<object> HandIn(string id, int type)
-    {
-        if (!MongoId.IsValidMongoId(id) || profiles.GetPmcProfile(new MongoId(id)) is not { } pmc)
-        {
-            return new { ok = false, why = "No such character." };
-        }
-
-        if (Hip(HipContribute) is not { } router)
-        {
-            return new { ok = false, why = "Hideout in Progress isn't installed." };
-        }
-
-        var mongo = new MongoId(id);
-        List<HideoutItem> items = [];
-        lock (_lock)
-        {
-            if (Busy(mongo) is { } busy)
-            {
-                return new { ok = false, why = busy };
-            }
-
-            var table = hideout.Areas?.FirstOrDefault(a => a?.Type != null && (int)a.Type == type);
-            var area = (pmc.Hideout?.Areas ?? []).FirstOrDefault(a => a != null && (int)a.Type == type);
-            var stage = table?.Stages?.GetValueOrDefault(((area?.Level ?? 0) + 1).ToString());
-            if (stage == null || area?.Constructing == true)
-            {
-                return new { ok = false, why = "Nothing to hand in for." };
-            }
-
-            var handed = HandedIn(mongo).GetValueOrDefault(type) ?? [];
-            var stash = Stash(pmc);
-            var used = new HashSet<MongoId>();
-            foreach (var need in (stage.Requirements ?? []).Where(r => r.Type == "Item" && !payments.IsMoneyTpl(r.TemplateId)))
-            {
-                var tpl = need.TemplateId.ToString();
-                var fir = need.IsSpawnedInSession == true;
-                var left = Math.Min((need.Count ?? 1) - handed.GetValueOrDefault(tpl), Have(stash, tpl, fir));
-                if (left > 0 && Pick(stash, tpl, left, fir, used) is { } picked)
-                {
-                    items.AddRange(picked.Select(p => new HideoutItem { Id = p.Item.Id, Count = p.Take }));
-                }
-            }
-        }
-
-        if (items.Count == 0)
-        {
-            return new { ok = false, why = "You have nothing more to hand in for it." };
-        }
-
-        var body = JsonSerializer.Serialize(new { area = type, items = items.Select(i => new { id = i.Id.ToString(), count = i.Count }) });
-        await router.HandleStaticAsync(HipContribute, body, mongo, "");
-        await saveServer.SaveProfileAsync(mongo);
-        return new { ok = true, count = items.Sum(i => (int)(i.Count ?? 1)) };
     }
 
     // ---------- wishlist ----------

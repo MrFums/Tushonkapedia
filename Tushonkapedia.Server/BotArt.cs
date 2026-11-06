@@ -21,7 +21,7 @@ public sealed class BotArt(ISptLogger<WikiRoute> logger, string folder, bool onl
 
     private string Folder => Path.Combine(folder, "data", "bots");
     // the pictures and list the mod ships with, as WebP
-    private string Pack => Path.Combine(folder, "pack", "bots");
+    private PackFiles Packed => PackFiles.In(folder);
 
     public sealed record Picture(byte[] Bytes, string ContentType);
 
@@ -42,10 +42,9 @@ public sealed class BotArt(ISptLogger<WikiRoute> logger, string folder, bool onl
                 _list = Parse(JsonNode.Parse(await File.ReadAllTextAsync(file, cancellationToken)));
             }
 
-            var packed = Path.Combine(Pack, "bots.json");
-            if (_list == null && File.Exists(packed))
+            if (_list == null && Packed.Text("bots/bots.json") is { } packed)
             {
-                _list = Parse(JsonNode.Parse(await File.ReadAllTextAsync(packed, cancellationToken)));
+                _list = Parse(JsonNode.Parse(packed));
             }
 
             if (online && (!File.Exists(file) || File.GetLastWriteTimeUtc(file) < DateTime.UtcNow.AddDays(-7)) && DateTime.UtcNow - _tried > TimeSpan.FromMinutes(10))
@@ -145,10 +144,9 @@ public sealed class BotArt(ISptLogger<WikiRoute> logger, string folder, bool onl
         var chosen = new Dictionary<string, (string, string)>(StringComparer.OrdinalIgnoreCase);
         try
         {
-            var file = Path.Combine(Pack, "chosen.json");
-            if (File.Exists(file))
+            if (Packed.Text("bots/chosen.json") is { } text)
             {
-                foreach (var (role, pictures) in JsonNode.Parse(File.ReadAllText(file)) as JsonObject ?? [])
+                foreach (var (role, pictures) in JsonNode.Parse(text) as JsonObject ?? [])
                 {
                     chosen[role] = ("pack:" + pictures?["portrait"], "pack:" + pictures?["poster"]);
                 }
@@ -167,8 +165,7 @@ public sealed class BotArt(ISptLogger<WikiRoute> logger, string folder, bool onl
     {
         if (url.StartsWith("pack:"))
         {
-            var own = Path.Combine(Pack, Path.GetFileName(url[5..]));
-            return File.Exists(own) ? new Picture(await File.ReadAllBytesAsync(own, cancellationToken), "image/webp") : null;
+            return Packed.Bytes("bots/" + Path.GetFileName(url[5..])) is { } own ? new Picture(own, "image/webp") : null;
         }
 
         if (!Uri.TryCreate(url, UriKind.Absolute, out var uri) || uri.Host != "assets.tarkov.dev")
@@ -185,16 +182,14 @@ public sealed class BotArt(ISptLogger<WikiRoute> logger, string folder, bool onl
         }
 
         // shipped as it came (a JPEG poster, a WebP portrait) or, for a PNG, as a lossless WebP
-        var original = Path.Combine(Pack, name);
-        if (File.Exists(original))
+        if (Packed.Bytes("bots/" + name) is { } original)
         {
-            return new Picture(await File.ReadAllBytesAsync(original, cancellationToken), type);
+            return new Picture(original, type);
         }
 
-        var packed = Path.Combine(Pack, Path.GetFileNameWithoutExtension(name) + ".webp");
-        if (File.Exists(packed))
+        if (Packed.Bytes("bots/" + Path.GetFileNameWithoutExtension(name) + ".webp") is { } packed)
         {
-            return new Picture(await File.ReadAllBytesAsync(packed, cancellationToken), "image/webp");
+            return new Picture(packed, "image/webp");
         }
 
         if (!online)

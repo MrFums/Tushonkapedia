@@ -50,8 +50,23 @@ $plugin = Join-Path $stage 'BepInEx\plugins\Tushonkapedia'
 New-Item -ItemType Directory -Force $plugin | Out-Null
 Copy-Item $clientDll $plugin
 Copy-Item (Join-Path $root 'web') $mod -Recurse
-# pictures, map drawings and keys shipped with the mod, so it works with no internet (built by tools\build_pack.py)
-if (Test-Path (Join-Path $root 'pack')) { Copy-Item (Join-Path $root 'pack') $mod -Recurse }
+# pictures, map drawings and keys shipped with the mod, so it works with no internet (built by tools\build_pack.py).
+# One pack.zip, read in place by the server: extracting thousands of loose files takes ages. Stored, not
+# compressed: the pictures are already WebP, and the release zip compresses it anyway.
+Add-Type -AssemblyName System.IO.Compression, System.IO.Compression.FileSystem
+$packDir = Join-Path $root 'pack'
+if (Test-Path $packDir) {
+    $packZip = [System.IO.Compression.ZipFile]::Open((Join-Path $mod 'pack.zip'), 'Create')
+    try {
+        Get-ChildItem $packDir -Recurse -File | ForEach-Object {
+            $entry = $_.FullName.Substring($packDir.Length + 1).Replace('\', '/')
+            [System.IO.Compression.ZipFileExtensions]::CreateEntryFromFile($packZip, $_.FullName, $entry, [System.IO.Compression.CompressionLevel]::NoCompression) | Out-Null
+        }
+    }
+    finally {
+        $packZip.Dispose()
+    }
+}
 else { Write-Warning 'No pack folder: the mod will need the internet for pictures and map drawings. Run tools\build_pack.py.' }
 Copy-Item (Join-Path $root 'LICENSE'), (Join-Path $root 'README.md'), (Join-Path $root 'files\config.json'), (Join-Path $root 'files\keys.json'), (Join-Path $root 'files\bot-notes.json'), (Join-Path $root 'files\box-places.json'), (Join-Path $root 'files\key-places.json'), (Join-Path $root 'files\zone-places.json'), (Join-Path $root 'files\exit-places.json') $mod
 
@@ -99,12 +114,17 @@ if (-not $NoInstall) {
         try { Remove-Item $oldPlugin -Recurse -Force -ErrorAction Stop; Write-Host "Removed the old QuestMap plugin folder" }
         catch { Write-Warning "Couldn't remove $oldPlugin. Close the game and build again. ($($_.Exception.Message))" }
     }
-    # your own config.json, keys.json and bot-notes.json are kept; a running server locks the DLL, so an unchanged one is left alone
-    $installedDll = Join-Path $dest 'Tushonkapedia.Server.dll'
-    $sameDll = (Test-Path $installedDll) -and (Get-FileHash $installedDll).Hash -eq (Get-FileHash $serverDll).Hash
+    # your own config.json, keys.json and bot-notes.json are kept; a running server locks the DLL and pack.zip, so
+    # unchanged ones are left alone
+    $same = @{}
+    foreach ($name in 'Tushonkapedia.Server.dll', 'pack.zip') {
+        $installed = Join-Path $dest $name
+        $built = Join-Path $mod $name
+        $same[$name] = (Test-Path $installed) -and (Test-Path $built) -and (Get-FileHash $installed).Hash -eq (Get-FileHash $built).Hash
+    }
     Get-ChildItem $mod |
         Where-Object { -not ($_.Name -in 'config.json', 'keys.json', 'bot-notes.json' -and (Test-Path (Join-Path $dest $_.Name))) } |
-        Where-Object { -not ($_.Name -eq 'Tushonkapedia.Server.dll' -and $sameDll) } |
+        Where-Object { -not $same[$_.Name] } |
         ForEach-Object {
             $file = $_
             try { Copy-Item $file.FullName -Destination $dest -Recurse -Force -ErrorAction Stop }

@@ -1145,11 +1145,10 @@
   }
 
   // Every map: raid time, quests there, bosses, and with a profile how many of your objectives are there.
-  // the picture SPT's launcher has for a map
-  const MAP_BANNER = { Interchange: 'interchange', Lighthouse: 'lighthouse', Shoreline: 'shoreline', Woods: 'woods', factory4_day: 'factory4', factory4_night: 'factory4' };
   // maps SPT's launcher has no picture of under their own name
-  const MAP_PICTURE = { Icebreaker: 'map-icebreaker.png', Labyrinth: '/files/banners/67eac0afef0822d52d09f6a5.jpg' };
-  const mapBanner = id => MAP_PICTURE[id] || `/files/banners/banner_${MAP_BANNER[id] || id}.png`;
+  const MAP_PICTURE = { icebreaker: 'map-icebreaker.png', labyrinth: '/files/banners/67eac0afef0822d52d09f6a5.jpg' };
+  // the picture SPT's launcher has for a map: the server looks it up in what SPT serves
+  const mapBanner = id => MAP_PICTURE[String(id).toLowerCase()] || `api/banner?map=${encodeURIComponent(id)}`;
 
   function mapsTable(maps) {
     const plans = profile ? mapPlan() : [];
@@ -3932,7 +3931,7 @@
   let craftNow = false;
   let craftFilter = '';
 
-  // Starts a craft or an upgrade, or hands items in to Hideout in Progress, after asking; then the hideout and the
+  // Starts a craft or an upgrade, after asking; then the hideout and the
   // character are fetched again.
   async function hideoutDo(button) {
     const action = button.dataset.hx;
@@ -3947,17 +3946,14 @@
       ? { title: `Craft ${itemName(craft?.item)}${craft?.count > 1 ? ` × ${craft.count}` : ''}?`, pic: craft?.item, ok: 'Start crafting',
           body: `<p class="sub">Takes ${craft ? (craft.hours >= 1 ? `${craft.hours} h` : `${Math.round(craft.hours * 60)} min`) : ''} before your skills. Uses from your stash:</p>
             ${craft?.inputs.map(i => line(i.id, i.count, i.tool ? 'tool, given back' : '')).join('') || ''}` }
-      : action === 'upgrade'
-        ? { title: `Build ${where?.name || 'the area'} level ${level?.level ?? ''}?`, ok: 'Start building',
-            body: `<p class="sub">${level?.hours ? `Takes ${level.hours} h. ` : ''}Takes these from your stash (less anything already handed in):</p>${(level?.items || []).map(i => line(i.id, i.count, i.fir ? 'found in raid' : '')).join('')}` }
-        : { title: `Hand in to ${where?.name || 'the area'}?`, ok: 'Hand in', danger: true,
-            body: "<p>Everything your stash has towards the next level goes in. Handed-in items can't be taken back.</p>" });
+      : { title: `Build ${where?.name || 'the area'} level ${level?.level ?? ''}?`, ok: 'Start building',
+          body: `<p class="sub">${level?.hours ? `Takes ${level.hours} h. ` : ''}Takes these from your stash:</p>${(level?.items || []).map(i => line(i.id, i.count, i.fir ? 'found in raid' : '')).join('')}` });
     if (!ok) return;
     button.disabled = true;
     let result;
     result = await act(`api/hideout/${action}`, { profile: profile.id, recipe, area });
     hideoutNote = result.ok
-      ? { ok: true, text: result.viaGame ? `Done through the game: ${action === 'craft' ? `crafting ${itemName(craft?.item)}` : 'building started'}. It's in the game now.` : action === 'craft' ? `Crafting ${itemName(craft?.item)}. The timer is on the page; it runs while the game is closed too (an area that needs power only works while the generator runs). Collect it in the game.` : action === 'upgrade' ? 'Building started. The game finishes it when the time is up.' : `Handed in ${result.count} item${result.count === 1 ? '' : 's'}.` }
+      ? { ok: true, text: result.viaGame ? `Done through the game: ${action === 'craft' ? `crafting ${itemName(craft?.item)}` : 'building started'}. It's in the game now.` : action === 'craft' ? `Crafting ${itemName(craft?.item)}. The timer is on the page; it runs while the game is closed too (an area that needs power only works while the generator runs). Collect it in the game.` : 'Building started. The game finishes it when the time is up.' }
       : { ok: false, text: hxWhy(result.why) || "It didn't work." };
     for (const key of [...wikiCache.keys()]) if (key.startsWith('hideout-me|') || key.startsWith('hideout-crafts|')) wikiCache.delete(key);
     try { profile = await getJson('api/profile?id=' + encodeURIComponent(prefs.profile)); computeState(); offered(); } catch { /* the next poll catches up */ }
@@ -4253,15 +4249,14 @@
       const ok = can && !st.upgrade.why;
       return `<div class="hx-actions">
         <button class="btn hx-go" data-hx="upgrade" data-area="${area.type}"${ok ? '' : ' disabled'}>Start building level ${l.level}</button>
-        ${st.hip && st.upgrade.items.length ? `<button class="btn" data-hx="handin" data-area="${area.type}"${can && !st.viaGame ? '' : ' disabled'}${st.viaGame ? ' title="Close the game to hand items in from here"' : ''}>Hand in what I have</button>` : ''}
         ${st.upgrade.why && !st.busy ? `<span class="hx-why">${esc(hxWhy(st.upgrade.why))}</span>` : ''}</div>`;
     };
     const tileHave = (l, i) => {
       if (!st || l.level !== next) return '';
       const u = st.upgrade.items.find(x => x.id === i.id);
       if (!u) return '';
-      const got = Math.min(u.count, u.have + u.handedIn);
-      return `<span class="have ${got >= u.count ? 'all' : got ? 'some' : 'none'}">${got} / ${u.count}${u.handedIn ? ` · ${u.handedIn} handed in` : ''}</span>`;
+      const got = Math.min(u.count, u.have);
+      return `<span class="have ${got >= u.count ? 'all' : got ? 'some' : 'none'}">${got} / ${u.count}</span>`;
     };
     const levels = area.levels.map(l => `<div class="card level${st && l.level <= st.level ? ' built' : ''}"><h3>Level ${l.level}${st && l.level <= st.level ? '<span class="hx-done">✓ built</span>' : ''}${l.hours ? `<span class="n">${l.hours} h to build</span>` : ''}</h3>
       ${l.description ? `<p class="sub">${esc(l.description)}</p>` : ''}
