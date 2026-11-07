@@ -5,7 +5,7 @@ namespace Tushonkapedia.Server;
 
 public record ModMetadata : IModMetadata, IModBlazorMetadata
 {
-    public string ModGuid { get; init; } = "com.fums.tushonkapedia.server";
+    public string ModGuid { get; init; } = "com.fums.tushonkapedia";
     public string Name { get; init; } = "Tushonkapedia";
     public string Author { get; init; } = "Fums";
     public List<string>? Contributors { get; init; }

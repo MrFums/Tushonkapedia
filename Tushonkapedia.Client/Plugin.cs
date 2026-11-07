@@ -25,7 +25,7 @@ namespace Tushonkapedia.Client
     [BepInPlugin(Guid, Name, Version)]
     public class Plugin : BaseUnityPlugin
     {
-        public const string Guid = "com.fums.tushonkapedia.client";
+        public const string Guid = "com.fums.tushonkapedia";
         public const string Name = "Fums-TushonkaClient";
         // BepInEx wants a plain version (no "-alpha"): the package version is in the csproj
         public const string Version = "1.0.1";
@@ -70,7 +70,8 @@ namespace Tushonkapedia.Client
         private void Awake()
         {
             Log = Logger;
-            MenuWork = Config.Bind("General", "Fill in missing pictures", true,
+            KeepOldSettings();
+            MenuWork =Config.Bind("General", "Fill in missing pictures", true,
                 "In the main menu, draw the pictures of items Tushonkapedia has none for (mostly mod items), and measure the pockets "
                 + "of rigs and backpacks it hasn't seen, so its pages match your game. Runs once per item; turn off to skip it.");
             // A game with no graphics (a Fika headless host) can't draw: its pictures would come out blank. It has no
@@ -96,6 +97,25 @@ namespace Tushonkapedia.Client
         }
 
         internal static ConfigEntry<KeyboardShortcut> OpenKey;
+
+        // Up to 1.0.1 the plugin's id ended in ".client", so its settings are in that file: carry them over once.
+        private void KeepOldSettings()
+        {
+            try
+            {
+                var old = System.IO.Path.Combine(System.IO.Path.GetDirectoryName(Config.ConfigFilePath) ?? "","com.fums.tushonkapedia.client.cfg");
+                if (System.IO.File.Exists(old) && !System.IO.File.Exists(Config.ConfigFilePath))
+                {
+                    System.IO.File.Copy(old, Config.ConfigFilePath);
+                    Config.Reload();
+                    System.IO.File.Delete(old);
+                }
+            }
+            catch (Exception e)
+            {
+                Log.LogWarning("Couldn't carry over the old settings: " + e.Message);
+            }
+        }
 
         private void Update()
         {
