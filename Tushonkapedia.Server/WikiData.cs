@@ -84,6 +84,189 @@ public sealed partial class ItemWiki
         }
     }
 
+    private readonly Dictionary<string, object> _catalogStats = new();
+    private Dictionary<string, List<string>>? _groupItems;
+    private readonly Dictionary<string, object> _groups = new();
+
+    // The server's item tree (every item sits under nodes like "ArmorPlate" or "Stock"): each node with the handbook
+    // items under it. A handbook category doesn't always match how players look for things (plates sit among "gear
+    // components"), so these are lists too.
+    private Dictionary<string, List<string>> GroupItems()
+    {
+        if (_groupItems != null)
+        {
+            return _groupItems;
+        }
+
+        var book = Handbook();
+        var map = new Dictionary<string, List<string>>();
+        foreach (var (id, t) in templates.Items)
+        {
+            if (t.Type != "Item" || !book.ContainsKey(id.ToString()))
+            {
+                continue;
+            }
+
+            var seen = new HashSet<string>();
+            for (var at = t.Parent.ToString(); !string.IsNullOrEmpty(at) && seen.Add(at)
+                 && templates.Items.TryGetValue(new MongoId(at), out var node) && node.Type == "Node"; at = node.Parent.ToString())
+            {
+                if (!map.TryGetValue(at, out var list))
+                {
+                    map[at] = list = [];
+                }
+
+                list.Add(id.ToString());
+            }
+        }
+
+        return _groupItems = map;
+    }
+
+    // Item-tree groups worth a list of their own: two or more items, not the same items as a handbook category or as
+    // another group. Named by the server's locale, else the node's own name split into words.
+    public object Groups(IReadOnlyDictionary<string, string> locale, string lang)
+    {
+        lock (_groups)
+        {
+            if (_groups.TryGetValue(lang, out var cached))
+            {
+                return cached;
+            }
+
+            var book = Handbook();
+            static string Sig(IEnumerable<string> ids) => string.Join(",", ids.OrderBy(x => x, StringComparer.Ordinal));
+            var taken = book.GroupBy(h => h.Value.Category).Select(g => Sig(g.Select(h => h.Key))).ToHashSet();
+            // the categories with what's below them, as the lists show them
+            var cats = templates.Handbook?.Categories ?? [];
+            foreach (var c in cats)
+            {
+                var inside = new HashSet<string> { c.Id.ToString() };
+                for (var grew = true; grew;)
+                {
+                    grew = false;
+                    foreach (var k in cats)
+                    {
+                        if (k.ParentId?.ToString() is { } parent && inside.Contains(parent) && inside.Add(k.Id.ToString()))
+                        {
+                            grew = true;
+                        }
+                    }
+                }
+
+                taken.Add(Sig(book.Where(h => inside.Contains(h.Value.Category)).Select(h => h.Key)));
+            }
+
+            var list = new List<object>();
+            // the smallest groups first, so of two with the same items the one nearer the items is kept
+            foreach (var (node, ids) in GroupItems().OrderBy(g => g.Value.Count))
+            {
+                if (ids.Count < 2 || !taken.Add(Sig(ids)))
+                {
+                    continue;
+                }
+
+                var raw = templates.Items[new MongoId(node)].Name ?? node;
+                var name = locale.GetValueOrDefault(node + " Name") is { Length: > 0 } n ? n
+                    : locale.GetValueOrDefault(node) is { Length: > 0 } m ? m : Spaced(raw);
+                list.Add(new { id = node, name, count = ids.Count });
+            }
+
+            _groups[lang] = list;
+            return list;
+        }
+    }
+
+    // an item-tree group's items, for the page's list of it (empty for anything else)
+    public List<string> GroupList(string id) => GroupItems().GetValueOrDefault(id) ?? [];
+
+    // the items of a list: a handbook category with everything below it, or an item-tree group
+    private List<string> ListItems(string list)
+    {
+        if (GroupItems().TryGetValue(list, out var group) && !(templates.Handbook?.Categories ?? []).Any(c => c.Id.ToString() == list))
+        {
+            return group;
+        }
+
+        var cats = templates.Handbook?.Categories ?? [];
+        var inside = new HashSet<string> { list };
+        for (var grew = true; grew;)
+        {
+            grew = false;
+            foreach (var c in cats)
+            {
+                if (c.ParentId?.ToString() is { } parent && inside.Contains(parent) && inside.Add(c.Id.ToString()))
+                {
+                    grew = true;
+                }
+            }
+        }
+
+        return Handbook().Where(h => inside.Contains(h.Value.Category)
+            && templates.Items.TryGetValue(new MongoId(h.Key), out var t) && t.Type == "Item").Select(h => h.Key).ToList();
+    }
+
+    // The figures a category's list can show beside each item, so it can be sorted by them: ergonomics and recoil for
+    // grips, class and durability for plates, space for bags. Picked from what the items themselves have: a figure
+    // most of them carry and that isn't the same on all of them. Nothing is picked by name.
+    public object CatalogStats(string category, IReadOnlyDictionary<string, string> locale, string lang)
+    {
+        lock (_catalogStats)
+        {
+            var key = lang + "|" + category;
+            if (_catalogStats.TryGetValue(key, out var cached))
+            {
+                return cached;
+            }
+
+            var ids = ListItems(category);
+            // each figure by its group and label, in the order the item pages list them
+            var order = new List<string>();
+            var labels = new Dictionary<string, (string Label, string Group)>();
+            var found = new Dictionary<string, Dictionary<string, StatRow>>();
+            foreach (var id in ids)
+            {
+                var mine = new Dictionary<string, StatRow>();
+                foreach (var g in Stats(id, locale))
+                {
+                    foreach (var r in g.rows)
+                    {
+                        var k = g.title + "|" + r.label;
+                        if (mine.TryAdd(k, r) && !labels.ContainsKey(k))
+                        {
+                            labels[k] = (r.label, g.title);
+                            order.Add(k);
+                        }
+                    }
+                }
+
+                found[id] = mine;
+            }
+
+            // a figure that differs between the items and is short enough to sit in a column. What most of the list has
+            // comes first; the free columns go to what fewer have (the few grips that change recoil), so they can be
+            // sorted to the top. A figure an item doesn't list is one it doesn't change.
+            var usable = order.Select(k => (Key: k, Rows: found.Values.Select(m => m.GetValueOrDefault(k)).OfType<StatRow>().ToList()))
+                .Where(x => x.Rows.Count >= 2 && x.Rows.Select(r => r.value).Distinct().Count() > 1 && x.Rows.Average(r => r.value.Length) <= 24)
+                .ToList();
+            var most = usable.Where(x => x.Rows.Count >= ids.Count / 2.0).Select(x => x.Key).ToList();
+            var some = usable.Where(x => x.Rows.Count < ids.Count / 2.0 && x.Rows.Count >= ids.Count / 20.0).OrderByDescending(x => x.Rows.Count).Select(x => x.Key);
+            var chosen = most.Concat(some).Take(6).ToHashSet();
+            var picked = order.Where(chosen.Contains).ToList();
+            // the same label in two groups ("Ergonomics" on the gun and while worn) says which
+            var columns = picked.Select(k => new
+            {
+                key = k,
+                label = picked.Count(o => labels[o].Label == labels[k].Label) > 1 ? $"{labels[k].Label} ({labels[k].Group.ToLowerInvariant()})" : labels[k].Label
+            }).ToList();
+            var items = found.Where(f => picked.Any(f.Value.ContainsKey)).ToDictionary(f => f.Key, f => picked.Select(k => f.Value.GetValueOrDefault(k) is { } r
+                ? new object?[] { r.value, r.n, r.tone } : null).ToList());
+            var result = new { columns, items };
+            _catalogStats[key] = result;
+            return result;
+        }
+    }
+
     // the game's own left-behind items: nothing gives them, or their name says they're for the developers
     // An item the game has but players never meet (a developer's "DO NOT USE" round): the server's handbook doesn't
     // list it (or SPT's own item settings say it's never handed out), nothing on the server hands it out (loot, traders, crafts, bots, quests; merely fitting a gun's slot

@@ -147,21 +147,22 @@ public sealed partial class ItemWiki
     // Groups of figures: { title, rows: [{ label, value, tone }] }, tone "good" or "bad" where it's clearly one.
     private List<string>? _keptSides;
 
-    public List<object> Stats(string id, IReadOnlyDictionary<string, string> locale)
+    public List<StatGroup> Stats(string id, IReadOnlyDictionary<string, string> locale)
     {
-        var groups = new List<object>();
+        var groups = new List<StatGroup>();
         if (!templates.Items.TryGetValue(new MongoId(id), out var template))
         {
             return groups;
         }
 
         var p = PropsOf(template.Properties);
-        var rows = new List<object>();
-        void Row(string label, string? value, string tone = "")
+        var rows = new List<StatRow>();
+        void Row(string label, string? value, string tone = "", double? n = null)
         {
             if (!string.IsNullOrEmpty(value))
             {
-                rows.Add(new { label, value, tone });
+                // n: the figure behind the text, for sorting lists by it
+                rows.Add(new StatRow(label, value, tone, n));
             }
         }
 
@@ -169,7 +170,7 @@ public sealed partial class ItemWiki
         {
             if (rows.Count > 0)
             {
-                groups.Add(new { title, rows = rows.ToList() });
+                groups.Add(new StatGroup(title, rows.ToList()));
                 rows.Clear();
             }
         }
@@ -180,29 +181,29 @@ public sealed partial class ItemWiki
         if (IsWeapon(id))
         {
             Row("Caliber", S(p, "ammoCaliber") is { } cal ? QuestGraphBuilder.Caliber(cal) : null);
-            Row("Fire rate", D(p, "bFirerate") is > 0 and var rate ? $"{rate:N0} rpm" : null);
+            Row("Fire rate", D(p, "bFirerate") is > 0 and var rate ? $"{rate:N0} rpm" : null, n: D(p, "bFirerate"));
             Row("Fire modes", p.GetValueOrDefault("weapFireType") is JsonArray modes && modes.Count > 0
                 ? string.Join(", ", modes.Select(m => m?.ToString() switch { "single" => "Single", "fullauto" => "Full auto", "burst" => "Burst", "doublet" => "Double", var o => o })) : null);
-            Row("Ergonomics", D(p, "Ergonomics") is { } ergo ? $"{ergo:0}" : null);
-            Row("Vertical recoil", D(p, "RecoilForceUp") is > 0 and var up ? $"{up:0}" : null);
-            Row("Horizontal recoil", D(p, "RecoilForceBack") is > 0 and var back ? $"{back:0}" : null);
-            Row("Effective distance", D(p, "bEffDist") is > 0 and var eff ? $"{eff:0} m" : null);
-            Row("Muzzle velocity", D(p, "Velocity") is { } vel && vel != 0 ? Signed(vel, "%") : null);
-            Row("Sighting range", D(p, "SightingRange") is > 0 and var sight ? $"{sight:0} m" : null);
+            Row("Ergonomics", D(p, "Ergonomics") is { } ergo ? $"{ergo:0}" : null, n: D(p, "Ergonomics"));
+            Row("Vertical recoil", D(p, "RecoilForceUp") is > 0 and var up ? $"{up:0}" : null, n: D(p, "RecoilForceUp"));
+            Row("Horizontal recoil", D(p, "RecoilForceBack") is > 0 and var back ? $"{back:0}" : null, n: D(p, "RecoilForceBack"));
+            Row("Effective distance", D(p, "bEffDist") is > 0 and var eff ? $"{eff:0} m" : null, n: D(p, "bEffDist"));
+            Row("Muzzle velocity", D(p, "Velocity") is { } vel && vel != 0 ? Signed(vel, "%") : null, n: D(p, "Velocity"));
+            Row("Sighting range", D(p, "SightingRange") is > 0 and var sight ? $"{sight:0} m" : null, n: D(p, "SightingRange"));
             Group("Weapon");
         }
         // ammo
         else if (D(p, "PenetrationPower") is { } pen && D(p, "Damage") is { } damage)
         {
-            var pellets = D(p, "buckshotBullets") ?? D(p, "ProjectileCount") ?? 1;
-            Row("Damage", pellets > 1 ? $"{damage:0} × {pellets:0} pellets" : $"{damage:0}");
-            Row("Penetration", $"{pen:0}");
-            Row("Armour damage", D(p, "ArmorDamage") is { } ad ? $"{ad:0}%" : null);
-            Row("Speed", D(p, "InitialSpeed") is > 0 and var speed ? $"{speed:0} m/s" : null);
-            Row("Fragmentation", D(p, "FragmentationChance") is > 0 and var frag ? $"{frag * 100:0}%" : null);
-            Row("Bleeding", (D(p, "LightBleedingDelta") ?? 0) + (D(p, "HeavyBleedingDelta") ?? 0) is > 0 and var bleed ? Signed(bleed * 100, "%") : null, "good");
-            Row("Accuracy", D(p, "ammoAccr") is { } acc && acc != 0 ? Signed(acc, "%") : null, Tone(D(p, "ammoAccr") ?? 0));
-            Row("Recoil", D(p, "ammoRec") is { } rec && rec != 0 ? Signed(rec, "%") : null, Tone(D(p, "ammoRec") ?? 0, false));
+            var pellets = Math.Max(1, D(p, "buckshotBullets") ?? D(p, "ProjectileCount") ?? 1);
+            Row("Damage", pellets > 1 ? $"{damage:0} × {pellets:0} pellets" : $"{damage:0}", n: damage * pellets);
+            Row("Penetration", $"{pen:0}", n: pen);
+            Row("Armour damage", D(p, "ArmorDamage") is { } ad ? $"{ad:0}%" : null, n: D(p, "ArmorDamage"));
+            Row("Speed", D(p, "InitialSpeed") is > 0 and var speed ? $"{speed:0} m/s" : null, n: D(p, "InitialSpeed"));
+            Row("Fragmentation", D(p, "FragmentationChance") is > 0 and var frag ? $"{frag * 100:0}%" : null, n: (D(p, "FragmentationChance") ?? 0) * 100);
+            Row("Bleeding", (D(p, "LightBleedingDelta") ?? 0) + (D(p, "HeavyBleedingDelta") ?? 0) is > 0 and var bleed ? Signed(bleed * 100, "%") : null, "good", ((D(p, "LightBleedingDelta") ?? 0) + (D(p, "HeavyBleedingDelta") ?? 0)) * 100);
+            Row("Accuracy", D(p, "ammoAccr") is { } acc && acc != 0 ? Signed(acc, "%") : null, Tone(D(p, "ammoAccr") ?? 0), D(p, "ammoAccr"));
+            Row("Recoil", D(p, "ammoRec") is { } rec && rec != 0 ? Signed(rec, "%") : null, Tone(D(p, "ammoRec") ?? 0, false), D(p, "ammoRec"));
             Row("Tracer", p.GetValueOrDefault("Tracer") is JsonValue t && t.TryGetValue<bool>(out var tracer) && tracer ? "Yes" : null);
             Row("Subsonic", D(p, "InitialSpeed") is > 0 and < 343 ? "Yes" : null);
             Group("Ammo");
@@ -211,28 +212,28 @@ public sealed partial class ItemWiki
         else if (D(p, "Ergonomics") is { } ergo || D(p, "Recoil") is { } || D(p, "Accuracy") is { })
         {
             var e = D(p, "Ergonomics") ?? 0;
-            Row("Ergonomics", e != 0 ? Signed(e) : null, Tone(e));
+            Row("Ergonomics", e != 0 ? Signed(e) : null, Tone(e), e);
             var r = D(p, "Recoil") ?? 0;
-            Row("Recoil", r != 0 ? Signed(r, "%") : null, Tone(r, false));
+            Row("Recoil", r != 0 ? Signed(r, "%") : null, Tone(r, false), r);
             var a = D(p, "Accuracy") ?? 0;
-            Row("Accuracy", a != 0 ? Signed(a, "%") : null, Tone(a));
+            Row("Accuracy", a != 0 ? Signed(a, "%") : null, Tone(a), a);
             var v = D(p, "Velocity") ?? 0;
-            Row("Muzzle velocity", v != 0 ? Signed(v, "%") : null, Tone(v));
-            Row("Sighting range", D(p, "SightingRange") is > 0 and var sight ? $"{sight:0} m" : null);
+            Row("Muzzle velocity", v != 0 ? Signed(v, "%") : null, Tone(v), v);
+            Row("Sighting range", D(p, "SightingRange") is > 0 and var sight ? $"{sight:0} m" : null, n: D(p, "SightingRange"));
             var mags = p.GetValueOrDefault("Cartridges") is JsonArray carts && carts.FirstOrDefault() is JsonObject slot ? (double?)slot["_max_count"]?.GetValue<double>() : null;
-            Row("Capacity", mags is > 0 ? $"{mags:0} rounds" : null);
+            Row("Capacity", mags is > 0 ? $"{mags:0} rounds" : null, n: mags);
             var load = D(p, "LoadUnloadModifier") ?? 0;
-            Row("Loading speed", load != 0 ? Signed(-load, "%") : null, Tone(-load));
+            Row("Loading speed", load != 0 ? Signed(-load, "%") : null, Tone(-load), -load);
             var check = D(p, "CheckTimeModifier") ?? 0;
-            Row("Check speed", check != 0 ? Signed(-check, "%") : null, Tone(-check));
+            Row("Check speed", check != 0 ? Signed(-check, "%") : null, Tone(-check), -check);
             Group("On the gun");
         }
 
         // armour and helmets
         if (D(p, "armorClass") is > 0 and var cls)
         {
-            Row("Armour class", $"{cls:0}");
-            Row("Durability", D(p, "MaxDurability") is > 0 and var dur ? $"{dur:0}" : null);
+            Row("Armour class", $"{cls:0}", n: cls);
+            Row("Durability", D(p, "MaxDurability") is > 0 and var dur ? $"{dur:0}" : null, n: D(p, "MaxDurability"));
             Row("Material", S(p, "ArmorMaterial") is { } mat ? System.Text.RegularExpressions.Regex.Replace(mat, "([a-z])([A-Z])", "$1 $2") : null);
             Row("Covers", p.GetValueOrDefault("armorColliders") is JsonArray parts && parts.Count > 0
                 ? string.Join(", ", parts.Select(x => x?.ToString()).Where(x => x != null).Select(x => locale.GetValueOrDefault("DeathInfo/" + x)?.Trim() is { Length: > 0 } z ? z : System.Text.RegularExpressions.Regex.Replace(x!, "([a-z])([A-Z])", "$1 $2")).Distinct().Take(8)) : null);
@@ -241,26 +242,26 @@ public sealed partial class ItemWiki
 
         // what wearing it costs (armour, rigs, helmets, bags)
         var speed2 = D(p, "speedPenaltyPercent") ?? 0;
-        Row("Move speed", speed2 != 0 ? Signed(speed2, "%") : null, Tone(speed2));
+        Row("Move speed", speed2 != 0 ? Signed(speed2, "%") : null, Tone(speed2), speed2);
         var turn = D(p, "mousePenalty") ?? 0;
-        Row("Turn speed", turn != 0 ? Signed(turn, "%") : null, Tone(turn));
+        Row("Turn speed", turn != 0 ? Signed(turn, "%") : null, Tone(turn), turn);
         var ergoPen = D(p, "weaponErgonomicPenalty") ?? 0;
-        Row("Ergonomics", ergoPen != 0 ? Signed(ergoPen, "%") : null, Tone(ergoPen));
+        Row("Ergonomics", ergoPen != 0 ? Signed(ergoPen, "%") : null, Tone(ergoPen), ergoPen);
         Group("While worn");
 
         // meds, food and drink: what using it does
         var uses = D(p, "MaxHpResource") ?? 0;
         if (p.GetValueOrDefault("effects_health") is JsonObject health || p.GetValueOrDefault("effects_damage") is JsonObject || uses > 0)
         {
-            Row("Heals", uses > 0 ? $"{uses:0} HP in all" : null, "good");
-            Row("Heal rate", D(p, "hpResourceRate") is > 0 and var hpRate ? $"{hpRate:0} HP a second" : null);
-            Row("Use time", (D(p, "medUseTime") ?? D(p, "foodUseTime")) is > 0 and var time ? $"{time:0.#} s" : null);
+            Row("Heals", uses > 0 ? $"{uses:0} HP in all" : null, "good", uses);
+            Row("Heal rate", D(p, "hpResourceRate") is > 0 and var hpRate ? $"{hpRate:0} HP a second" : null, n: D(p, "hpResourceRate"));
+            Row("Use time", (D(p, "medUseTime") ?? D(p, "foodUseTime")) is > 0 and var time ? $"{time:0.#} s" : null, n: D(p, "medUseTime") ?? D(p, "foodUseTime"));
             if (p.GetValueOrDefault("effects_health") is JsonObject h)
             {
                 foreach (var (effect, node) in h)
                 {
                     var value = node?["value"]?.GetValue<double>() ?? 0;
-                    Row(Stat(locale, effect), value != 0 ? Signed(value) : null, Tone(value));
+                    Row(Stat(locale, effect), value != 0 ? Signed(value) : null, Tone(value), value);
                 }
             }
 
@@ -303,7 +304,7 @@ public sealed partial class ItemWiki
         {
             var cells = grids.OfType<JsonObject>().Sum(g => (g["_props"]?["cellsH"]?.GetValue<double>() ?? g["Props"]?["CellsH"]?.GetValue<double>() ?? 0)
                 * (g["_props"]?["cellsV"]?.GetValue<double>() ?? g["Props"]?["CellsV"]?.GetValue<double>() ?? 0));
-            Row("Space inside", cells > 0 ? $"{cells:0} cells{(grids.Count > 1 ? $" in {grids.Count} parts" : "")}" : null);
+            Row("Space inside", cells > 0 ? $"{cells:0} cells{(grids.Count > 1 ? $" in {grids.Count} parts" : "")}" : null, n: cells);
             Group("Storage");
         }
 
@@ -311,7 +312,7 @@ public sealed partial class ItemWiki
         // where it goes, how many uses it has, and whether you keep it when you die
         var special = p.GetValueOrDefault("IsSpecialSlotOnly") is JsonValue so && so.TryGetValue<bool>(out var only) && only;
         Row("Goes in", special ? "Special slot only" : null);
-        Row("Uses", D(p, "MaxUsages") is > 1 and var usages ? $"{usages:0}" : null);
+        Row("Uses", D(p, "MaxUsages") is > 1 and var usages ? $"{usages:0}" : null, n: D(p, "MaxUsages"));
         // "Unlootable" means nobody can take it off a body of one of the listed sides while it sits in the listed slot,
         // so whoever wears it there keeps it when they die. No side listed: it never applies.
         var unlootable = p.GetValueOrDefault("Unlootable") is JsonValue ul && ul.TryGetValue<bool>(out var keep) && keep;
@@ -339,6 +340,10 @@ public sealed partial class ItemWiki
         Group("How it works");
         return groups;
     }
+
+    public sealed record StatRow(string label, string value, string tone, double? n);
+
+    public sealed record StatGroup(string title, List<StatRow> rows);
 
     // What an ammo pack holds: the round and how many, or null for anything else.
     public object? Unpacks(string id, IReadOnlyDictionary<string, string> locale, Dictionary<string, string> names)

@@ -1027,6 +1027,10 @@ footer { border-top: 1px solid var(--line); padding-top: 12px; color: var(--fain
 .wt a.lockout { color: var(--lockout); font-weight: 700; }
 .wt a.reward { color: var(--reward); font-weight: 700; }
 .wt .bot-thumb { width: 34px; height: 34px; object-fit: cover; object-position: top; display: block; border-radius: var(--radius); }
+/* an item list with stat columns scrolls sideways on a narrow screen, not the page */
+.table-scroll { overflow-x: auto; max-width: 100%; }
+.items-list td.good { color: var(--green); }
+.items-list td.bad { color: var(--bad); }
 .items-list .pic { display: grid; place-items: center; width: 36px; height: 36px; }
 .items-list .pic img { max-width: 36px; max-height: 36px; object-fit: contain; }
 .idx { columns: 3 200px; column-gap: 32px; margin: 0 0 18px; padding: 0 0 0 18px; }

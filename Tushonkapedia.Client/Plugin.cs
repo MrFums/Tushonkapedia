@@ -28,7 +28,7 @@ namespace Tushonkapedia.Client
         public const string Guid = "com.fums.tushonkapedia";
         public const string Name = "Fums-TushonkaClient";
         // BepInEx wants a plain version (no "-alpha"): the package version is in the csproj
-        public const string Version = "1.0.1";
+        public const string Version = "1.1.0";
 
         private const string WantedRoute = "/wiki/api/icons/wanted";
         private const string UploadRoute = "/wiki/api/icons/upload";

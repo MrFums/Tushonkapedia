@@ -583,6 +583,31 @@ public class WikiRoute(ISptLogger<WikiRoute> logger, TemplateTable templates, Lo
                     await SendJson(context, Wiki.Catalog(PlainLocale(lang) ?? [], lang, Graph(lang, false).Graph), cancellationToken);
                     return;
                 }
+                case "api/catalog/groups":
+                {
+                    var lang = Lang(query["lang"]);
+                    await SendJson(context, Wiki.Groups(PlainLocale(lang) ?? [], lang), cancellationToken);
+                    return;
+                }
+                case "api/catalog/group":
+                {
+                    var id = query["id"].ToString().Trim();
+                    await SendJson(context, Wiki.GroupList(id), cancellationToken);
+                    return;
+                }
+                case "api/catalog/stats":
+                {
+                    var lang = Lang(query["lang"]);
+                    var category = query["category"].ToString().Trim();
+                    if (category.Length is 0 or > 64)
+                    {
+                        context.Response.StatusCode = 400;
+                        return;
+                    }
+
+                    await SendJson(context, Wiki.CatalogStats(category, PlainLocale(lang) ?? [], lang), cancellationToken);
+                    return;
+                }
                 case "api/trader":
                 case "api/map":
                 case "api/box":

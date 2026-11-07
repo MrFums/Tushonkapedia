@@ -2403,19 +2403,43 @@
     const countIn = id => { const set = below(id); return catalog.items.filter(i => set.has(i.category)).length; };
     const top = (kids.get('') || []).filter(c => countIn(c.id));
     const chosen = cats.get(category);
+    // not a handbook category: one of the server's item-tree groups (armour plates), found from search
+    const groups = !chosen && category ? wiki('catgroups', 'api/catalog/groups') : null;
+    const group = Array.isArray(groups) ? groups.find(g => g.id === category) : null;
+    const groupIds = group ? wiki(`catgroup|${group.id}`, `api/catalog/group?id=${encodeURIComponent(group.id)}`) : null;
+    const inGroup = Array.isArray(groupIds) ? new Set(groupIds) : null;
+    if (!chosen && category && (!groups || (group && !inGroup))) return `${crumbs([null, 'Items'])}<div class="loading">Loading the list…</div>`;
+    const listed = chosen || group;
     const path = [];
     for (let at = chosen; at; at = cats.get(at.parent)) path.unshift(at);
     const text = catalogFilter.toLowerCase();
-    let items = catalog.items.filter(i => (!chosen || below(chosen.id).has(i.category))
+    let items = catalog.items.filter(i => (!chosen || below(chosen.id).has(i.category)) && (!group || inGroup.has(i.id))
       && (!text || i.name.toLowerCase().includes(text) || (i.shortName || '').toLowerCase().includes(text))
       && (!catalogModded || i.modded));
+    // the figures this category's items carry, as columns (the server picks them from the items themselves)
+    const stats = listed ? wiki(`catstats|${listed.id}`, `api/catalog/stats?category=${encodeURIComponent(listed.id)}`) : null;
+    const cols = stats && !stats.error ? stats.columns : [];
+    const cell = (i, c) => stats?.items?.[i.id]?.[c];
     if (catalogSort === 'price') items = [...items].sort((a, b) => b.price - a.price);
+    const colSort = /^col:(\d+):([ad])$/.exec(catalogSort);
+    if (colSort && cols[+colSort[1]]) {
+      const c = +colSort[1], dir = colSort[2] === 'd' ? -1 : 1;
+      // items without the figure go last either way
+      items = [...items].sort((a, b) => {
+        const x = cell(a, c), y = cell(b, c);
+        if (!x || !y) return !x - !y;
+        return (x[1] != null && y[1] != null ? x[1] - y[1] : String(x[0]).localeCompare(String(y[0]), undefined, { numeric: true })) * dir;
+      });
+    }
+    // a column none of the items shown fills (only the hidden built-in inserts had it) is left out
+    const shownCols = cols.map((c, k) => [c, k]).filter(([, k]) => items.some(i => cell(i, k)));
+    const colHead = (c, k) => `<th class="sortable num${colSort && +colSort[1] === k ? ' sorted' : ''}" data-csort="${k}">${esc(c.label)}${colSort && +colSort[1] === k ? (colSort[2] === 'a' ? ' ▲' : ' ▼') : ''}</th>`;
     const subcats = chosen ? (kids.get(chosen.id) || []).filter(c => countIn(c.id)) : [];
 
-    return `${crumbs(...(chosen ? [['items', 'Items'], ...path.slice(0, -1).map(c => ['items', c.name, c.id]), [null, chosen.name]] : [[null, 'Items']]))}
-      <div class="page-head"><div class="t"><h2>${chosen ? esc(chosen.name) : 'Items'}</h2>
-        <p>${number(items.length)} item${items.length === 1 ? '' : 's'}${chosen ? '' : `, ${number(catalog.items.filter(i => i.modded).length)} of them added by mods`}.</p></div></div>
-      ${chosen || text || catalogModded ? '' : catalogFront(catalog, top, kids, below, countIn)}
+    return `${crumbs(...(chosen ? [['items', 'Items'], ...path.slice(0, -1).map(c => ['items', c.name, c.id]), [null, chosen.name]] : group ? [['items', 'Items'], [null, group.name]] : [[null, 'Items']]))}
+      <div class="page-head"><div class="t"><h2>${listed ? esc(listed.name) : 'Items'}</h2>
+        <p>${number(items.length)} item${items.length === 1 ? '' : 's'}${listed ? '' : `, ${number(catalog.items.filter(i => i.modded).length)} of them added by mods`}.</p></div></div>
+      ${listed || text || catalogModded ? '' : catalogFront(catalog, top, kids, below, countIn)}
       ${subcats.length ? `<ul class="idx">${subcats.map(c => `<li><a data-page="items" data-id="${c.id}">${esc(c.name)}</a> <span class="sub">${number(countIn(c.id))}</span></li>`).join('')}</ul>` : ''}
       <div class="toolbar">
         <input class="filter" id="catalogFilter" placeholder="Filter by name" value="${esc(catalogFilter)}">
@@ -2424,9 +2448,10 @@
         <button class="chip${catalogModded ? ' on' : ''}" data-modded="1">Added by mods</button>
         ${skipped ? `<button class="chip${catalogUnused ? ' on' : ''}" data-unused="1" title="Armour's built-in inserts, and items no loot, trader, craft, bot or quest on this server gives">Show unused (${number(skipped)})</button>` : ''}
       </div>
-      ${chosen || text || catalogModded ? `<table class="wt items-list"><thead><tr><th colspan="2">Item</th><th class="num">Value</th></tr></thead><tbody>${items.slice(0, catalogShown).map(i => `<tr data-item="${i.id}">
+      ${shownCols.length ? '<p class="sub">Click a heading to sort by it, again to reverse.</p>' : ''}
+      ${listed || text || catalogModded ? `<div class="table-scroll"><table class="wt items-list"><thead><tr><th colspan="2">Item</th>${shownCols.map(([c, k]) => colHead(c, k)).join('')}<th class="num">Value</th></tr></thead><tbody>${items.slice(0, catalogShown).map(i => `<tr data-item="${i.id}">
           <td class="pic-cell"><span class="pic">${pic(i.id, i.shortName)}</span></td>
-          <td><a>${esc(i.name)}</a>${modMark(i)}</td><td class="num">${i.price ? money(i.price, ROUBLES) : ''}</td></tr>`).join('')}</tbody></table>
+          <td><a>${esc(i.name)}</a>${modMark(i)}</td>${shownCols.map(([, k]) => { const v = cell(i, k); return `<td class="num${v?.[2] ? ' ' + v[2] : ''}">${v ? esc(v[0]) : ''}</td>`; }).join('')}<td class="num">${i.price ? money(i.price, ROUBLES) : ''}</td></tr>`).join('')}</tbody></table></div>
         ${items.length > catalogShown ? `<button class="btn more-items" data-moreitems="1">Show ${Math.min(240, items.length - catalogShown)} more</button>` : ''}` : ''}`;
   }
 
@@ -5502,7 +5527,7 @@
     if (next.page !== view.page || next.id !== view.id) revealed.clear();
     if (next.page !== 'quest') { mapFilter = ''; flagFilter = 0; }
     if (next.page !== view.page || next.id !== view.id) { ruleFilter = ''; ruleSort = ''; rulePick = ''; }
-    if (next.page === 'items' && next.id !== view.id) { catalogFilter = ''; catalogShown = 240; }
+    if (next.page === 'items' && next.id !== view.id) { catalogFilter = ''; catalogShown = 240; if (catalogSort.startsWith('col:')) catalogSort = 'name'; }
     // a kind of bot picked in the menu
     if (next.page === 'bots') botKind = next.id || '';
     if (next.page === 'crafts') craftArea = next.id || '';
@@ -5610,6 +5635,9 @@
     const scroll = target.closest('[data-scroll]');
     if (scroll) { $(scroll.dataset.scroll)?.scrollIntoView({ behavior: 'smooth', block: 'start' }); return; }
     if (target.closest('[data-focus]')) { search.focus(); return; }
+    // a stat column on an item list: biggest first, then smallest first, then back to by name
+    const colSortBy = target.closest('[data-csort]');
+    if (colSortBy) { const k = 'col:' + colSortBy.dataset.csort; catalogSort = catalogSort === k + ':d' ? k + ':a' : catalogSort === k + ':a' ? 'name' : k + ':d'; render(); return; }
     const sort = target.closest('[data-sort]');
     if (sort) { catalogSort = sort.dataset.sort; render(); return; }
     if (target.closest('[data-modded]')) { catalogModded = !catalogModded; render(); return; }
@@ -5895,7 +5923,9 @@
     const mapList = text ? wiki('maps', 'api/maps') : null;
     const mapRows = (Array.isArray(mapList) ? oneFactory(mapList).filter(m => m.name.toLowerCase().includes(text)) : []).map(m => `<button data-page="map" data-id="${esc(m.id)}"><img class="map-hit" src="${mapBanner(m.id)}" alt="" onerror="this.remove()"><span class="n">${esc(m.name)}<small>Map</small></span></button>`);
     const items = itemHits.filter(i => !i.box).map(i => `<button data-item="${i.id}">${icon(i.id, 'sm')}<span class="n">${esc(i.name)}<small>${esc(i.category || 'Item')}${i.variant ? ' · ' + esc(i.variant) : ''}</small></span></button>`);
-    results.innerHTML = (mapRows.length ? `<div class="group">Maps</div>${mapRows.join('')}` : '')
+    const listRows = text.length >= 3 ? listHits(text).map(l => `<button data-page="items" data-id="${esc(l.id)}"><span class="ico sm box-ico"></span><span class="n">${esc(l.name)}<small>Item list</small></span></button>`) : [];
+    results.innerHTML = (listRows.length ? `<div class="group">Lists</div>${listRows.join('')}` : '')
+      + (mapRows.length ? `<div class="group">Maps</div>${mapRows.join('')}` : '')
       + (people.length ? `<div class="group">Traders</div>${people.join('')}` : '')
       + (botRows.length ? `<div class="group">Bots</div>${botRows.join('')}` : '')
       + (boxes.length ? `<div class="group">Containers</div>${boxes.join('')}` : '')
@@ -5904,6 +5934,28 @@
       || (text.length >= 2 && itemsFor !== text ? '<div class="empty">Searching…</div>' : '<div class="empty">No results found</div>');
     results.hidden = !text;
   }
+
+  // Item lists whose name fits the search: the handbook's categories, and the server's item-tree groups (plates).
+  // Every word typed must start a word of the name; a plural matches its singular ("plates", "Armor Plate").
+  function listHits(text) {
+    const cat = wiki('catalog', 'api/catalog');
+    const groups = wiki('catgroups', 'api/catalog/groups');
+    const stem = w => w.length > 3 ? w.replace(/s$/, '') : w;
+    const words = s => s.toLowerCase().split(/[^\p{L}\p{N}]+/u).filter(Boolean).map(stem);
+    const want = words(text);
+    const fits = name => { const have = words(name); return want.length && want.every(w => have.some(h => h.startsWith(w))); };
+    const out = [];
+    if (cat?.categories) {
+      const counts = new Map();
+      const parents = new Map(cat.categories.map(c => [c.id, c.parent]));
+      for (const i of cat.items) if (!i.fixedPart && !i.unused) for (let at = i.category; at; at = parents.get(at)) counts.set(at, (counts.get(at) || 0) + 1);
+      for (const c of cat.categories) if (counts.get(c.id) && fits(c.name)) out.push({ id: c.id, name: c.name, count: counts.get(c.id) });
+    }
+    if (Array.isArray(groups)) for (const g of groups) if (fits(g.name)) out.push(g);
+    return out.slice(0, 6);
+  }
+  // the lists search looks through, asked for as soon as the search box is used
+  search.addEventListener('focus', () => { wiki('catalog', 'api/catalog'); wiki('catgroups', 'api/catalog/groups'); });
 
   // a press anywhere outside the search closes its results, before any other click handling can stop it
   document.addEventListener('pointerdown', e => {
