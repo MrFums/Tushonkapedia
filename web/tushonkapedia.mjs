@@ -2421,6 +2421,7 @@
     const cols = stats && !stats.error ? stats.columns : [];
     const cell = (i, c) => stats?.items?.[i.id]?.[c];
     if (catalogSort === 'price') items = [...items].sort((a, b) => b.price - a.price);
+    if (catalogSort === 'price:a') items = [...items].sort((a, b) => a.price - b.price);
     const colSort = /^col:(\d+):([ad])$/.exec(catalogSort);
     if (colSort && cols[+colSort[1]]) {
       const c = +colSort[1], dir = colSort[2] === 'd' ? -1 : 1;
@@ -2448,8 +2449,8 @@
         <button class="chip${catalogModded ? ' on' : ''}" data-modded="1">Added by mods</button>
         ${skipped ? `<button class="chip${catalogUnused ? ' on' : ''}" data-unused="1" title="Armour's built-in inserts, and items no loot, trader, craft, bot or quest on this server gives">Show unused (${number(skipped)})</button>` : ''}
       </div>
-      ${shownCols.length ? '<p class="sub">Click a heading to sort by it, again to reverse.</p>' : ''}
-      ${listed || text || catalogModded ? `<div class="table-scroll"><table class="wt items-list"><thead><tr><th colspan="2">Item</th>${shownCols.map(([c, k]) => colHead(c, k)).join('')}<th class="num">Value</th></tr></thead><tbody>${items.slice(0, catalogShown).map(i => `<tr data-item="${i.id}">
+      ${listed || text || catalogModded ? '<p class="sub">Click a heading to sort by it, again to reverse.</p>' : ''}
+      ${listed || text || catalogModded ? `<div class="table-scroll"><table class="wt items-list"><thead><tr><th colspan="2">Item</th>${shownCols.map(([c, k]) => colHead(c, k)).join('')}<th class="sortable num${catalogSort.startsWith('price') ? ' sorted' : ''}" data-vsort="1">Value${catalogSort === 'price' ? ' ▼' : catalogSort === 'price:a' ? ' ▲' : ''}</th></tr></thead><tbody>${items.slice(0, catalogShown).map(i => `<tr data-item="${i.id}">
           <td class="pic-cell"><span class="pic">${pic(i.id, i.shortName)}</span></td>
           <td><a>${esc(i.name)}</a>${modMark(i)}</td>${shownCols.map(([, k]) => { const v = cell(i, k); return `<td class="num${v?.[2] ? ' ' + v[2] : ''}">${v ? esc(v[0]) : ''}</td>`; }).join('')}<td class="num">${i.price ? money(i.price, ROUBLES) : ''}</td></tr>`).join('')}</tbody></table></div>
         ${items.length > catalogShown ? `<button class="btn more-items" data-moreitems="1">Show ${Math.min(240, items.length - catalogShown)} more</button>` : ''}` : ''}`;
@@ -5636,6 +5637,8 @@
     if (scroll) { $(scroll.dataset.scroll)?.scrollIntoView({ behavior: 'smooth', block: 'start' }); return; }
     if (target.closest('[data-focus]')) { search.focus(); return; }
     // a stat column on an item list: biggest first, then smallest first, then back to by name
+    // the Value heading: most valuable first, then least, then back to by name
+    if (target.closest('[data-vsort]')) { catalogSort = catalogSort === 'price' ? 'price:a' : catalogSort === 'price:a' ? 'name' : 'price'; render(); return; }
     const colSortBy = target.closest('[data-csort]');
     if (colSortBy) { const k = 'col:' + colSortBy.dataset.csort; catalogSort = catalogSort === k + ':d' ? k + ':a' : catalogSort === k + ':a' ? 'name' : k + ':d'; render(); return; }
     const sort = target.closest('[data-sort]');
