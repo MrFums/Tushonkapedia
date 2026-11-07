@@ -731,10 +731,69 @@ public static partial class QuestGraphBuilder
                     Text = $"{names.Trader(trader)} {what} {compare} {Number(value)}"
                 };
             }
+            case "CounterCreator" when names.Text(condition.Id.ToString()) == null && Counted(condition, names) is { } counted:
+                return new ConditionInfo { Kind = kind, Compare = compare, Value = value, Text = counted };
             default:
                 return new ConditionInfo { Kind = kind, Compare = compare, Value = value, Quests = targets.Where(names.IsQuest).ToList(), Text = Generic(condition, kind, targets, names) };
         }
     }
+
+    // A counter with no locale text of its own, told from the parts it counts: "your raid ends as Killed or Left, on
+    // Customs", "you kill Scavs, on Customs". Null when none of its parts says anything.
+    private static string? Counted(QuestCondition condition, Names names)
+    {
+        var counters = (condition.Counter?.Conditions ?? []).Where(c => c != null).Select(c => c!).ToList();
+        var what = new List<string>();
+        var where = new List<string>();
+        foreach (var c in counters)
+        {
+            switch (c.ConditionType)
+            {
+                case "ExitStatus" when c.Status is { Count: > 0 } statuses:
+                    what.Add($"your raid ends as {string.Join(" or ", statuses.Select(s => ExitWord(s, names)).Distinct())}");
+                    break;
+                case "Kills":
+                case "Shots":
+                {
+                    var roles = (c.SavageRole ?? []).Where(r => !string.IsNullOrWhiteSpace(r)).Select(r => BotRoles.Name(r, names.Locale)).Distinct().ToList();
+                    var who = roles.Count > 0
+                        ? string.Join(" or ", roles)
+                        : string.Join(" or ", Targets(c.Target).Select(t => names.Text("QuestCondition/Elimination/Kill/Target/" + t) ?? Spaced(t)));
+                    var count = condition.Value is > 1 ? Number(condition.Value) + " " : "";
+                    what.Add($"you {(c.ConditionType == "Shots" ? "hit" : "kill")} {count}{(who.Length > 0 ? who : "anyone")}");
+                    break;
+                }
+                case "ExitName" when !string.IsNullOrEmpty(c.ExitName):
+                    where.Add($"through {names.Text(c.ExitName) ?? c.ExitName}");
+                    break;
+                case "Location":
+                {
+                    var maps = Targets(c.Target).Select(names.Map).Distinct().ToList();
+                    if (maps.Count > 0)
+                    {
+                        where.Add($"on {string.Join(", ", maps.Take(4))}{(maps.Count > 4 ? $" or one of {maps.Count - 4} more maps" : "")}");
+                    }
+
+                    break;
+                }
+                case { } other when !string.IsNullOrEmpty(other):
+                    what.Add(Spaced(other).ToLowerInvariant());
+                    break;
+            }
+        }
+
+        if (what.Count == 0)
+        {
+            return null;
+        }
+
+        return string.Join(", ", what.Concat(where));
+    }
+
+    // An exit status in the server's own words, else its name split into words ("MissingInAction" is "Missing In Action").
+    private static string ExitWord(string status, Names names) => names.Text(status) ?? Spaced(status);
+
+    private static string Spaced(string key) => Regex.Replace(key, "([a-z])([A-Z])", "$1 $2");
 
     // Anything else is shown by its own locale text when it has one, else by type, targets and value.
     private static string Generic(QuestCondition condition, string kind, List<string> targets, Names names)
@@ -802,12 +861,6 @@ public static partial class QuestGraphBuilder
         };
     }
 
-
-    private static readonly Dictionary<string, string> ExitStatuses = new(StringComparer.OrdinalIgnoreCase)
-    {
-        ["Survived"] = "survive", ["Runner"] = "run through", ["Transit"] = "take a transit", ["Killed"] = "die", ["Left"] = "leave the raid",
-        ["MissingInAction"] = "go missing in action"
-    };
 
     // The ids of the places an objective asks for, as the map scenes name their triggers.
     private static List<string> ZonesOf(QuestCondition condition)
@@ -919,10 +972,10 @@ public static partial class QuestGraphBuilder
                 case "ExitStatus":
                 {
                     // surviving is what extracting means; only a raid that may end another way says more
-                    var how = (c.Status ?? []).Where(s => s != "Survived").Select(s => ExitStatuses.GetValueOrDefault(s) ?? s).Distinct().ToList();
+                    var how = (c.Status ?? []).Where(s => s != "Survived").Select(s => ExitWord(s, names)).Distinct().ToList();
                     if (how.Count > 0)
                     {
-                        steps.Add($"{char.ToUpperInvariant(how[0][0])}{string.Join(" or ", how)[1..]} counts too.");
+                        steps.Add($"A raid that ends as {string.Join(" or ", how)} counts too.");
                     }
 
                     break;

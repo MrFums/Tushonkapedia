@@ -28,7 +28,7 @@ namespace Tushonkapedia.Client
         public const string Guid = "com.fums.tushonkapedia.client";
         public const string Name = "Fums-TushonkaClient";
         // BepInEx wants a plain version (no "-alpha"): the package version is in the csproj
-        public const string Version = "1.0.0";
+        public const string Version = "1.0.1";
 
         private const string WantedRoute = "/wiki/api/icons/wanted";
         private const string UploadRoute = "/wiki/api/icons/upload";
@@ -90,6 +90,32 @@ namespace Tushonkapedia.Client
             }
 
             Places.Start(this, Config);
+
+            OpenKey = Config.Bind("General", "Open the wiki", new KeyboardShortcut(KeyCode.F10),
+                "Opens Tushonkapedia in your browser, on your own character's progress. Clear it to turn the key off.");
+        }
+
+        internal static ConfigEntry<KeyboardShortcut> OpenKey;
+
+        private void Update()
+        {
+            if (OpenKey == null || OpenKey.Value.MainKey == KeyCode.None || !OpenKey.Value.IsDown())
+            {
+                return;
+            }
+
+            // the wiki lives on the server the game is connected to, at /wiki/
+            var host = RequestHandler.Host?.TrimEnd('/');
+            if (string.IsNullOrEmpty(host))
+            {
+                Log.LogWarning("Not connected to a server yet, so there's no wiki to open.");
+                return;
+            }
+
+            var id = Singleton<ClientApplication<IEftSession>>.Instance?.GetClientBackEndSession()?.Profile?.Id;
+            var url = host + "/wiki/" + (string.IsNullOrEmpty(id) ? "" : "#profile=" + Uri.EscapeDataString(id));
+            Log.LogInfo("Opening " + url);
+            Application.OpenURL(url);
         }
 
         private IEnumerator Run()
