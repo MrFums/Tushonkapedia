@@ -135,10 +135,13 @@ public sealed partial class ItemWiki
             }
 
             var book = Handbook();
-            static string Sig(IEnumerable<string> ids) => string.Join(",", ids.OrderBy(x => x, StringComparer.Ordinal));
-            var taken = book.GroupBy(h => h.Value.Category).Select(g => Sig(g.Select(h => h.Key))).ToHashSet();
-            // the categories with what's below them, as the lists show them
+            // the lists already offered, by their items: a group that is nearly one of them (the item tree's "Ammo" is
+            // the handbook's "Rounds" plus one stray round) adds nothing
+            var taken = book.GroupBy(h => h.Value.Category).Select(g => g.Select(h => h.Key).ToHashSet()).ToList();
+            bool Same(HashSet<string> a, ICollection<string> b) => a.Count(b.Contains) >= 0.95 * Math.Max(a.Count, b.Count);
+            // a group named like a handbook category would show the same name twice
             var cats = templates.Handbook?.Categories ?? [];
+            var catNames = cats.Select(c => locale.GetValueOrDefault(c.Id.ToString())).OfType<string>().ToHashSet(StringComparer.OrdinalIgnoreCase);
             foreach (var c in cats)
             {
                 var inside = new HashSet<string> { c.Id.ToString() };
@@ -154,21 +157,23 @@ public sealed partial class ItemWiki
                     }
                 }
 
-                taken.Add(Sig(book.Where(h => inside.Contains(h.Value.Category)).Select(h => h.Key)));
+                taken.Add(book.Where(h => inside.Contains(h.Value.Category)).Select(h => h.Key).ToHashSet());
             }
 
             var list = new List<object>();
             // the smallest groups first, so of two with the same items the one nearer the items is kept
             foreach (var (node, ids) in GroupItems().OrderBy(g => g.Value.Count))
             {
-                if (ids.Count < 2 || !taken.Add(Sig(ids)))
+                var raw = templates.Items[new MongoId(node)].Name ?? node;
+                var name = locale.GetValueOrDefault(node + " Name") is { Length: > 0 } n ? n
+                    : locale.GetValueOrDefault(node) is { Length: > 0 } m ? m : Spaced(raw);
+                var set = ids.ToHashSet();
+                if (ids.Count < 2 || catNames.Contains(name) || taken.Any(t => Same(t, set)))
                 {
                     continue;
                 }
 
-                var raw = templates.Items[new MongoId(node)].Name ?? node;
-                var name = locale.GetValueOrDefault(node + " Name") is { Length: > 0 } n ? n
-                    : locale.GetValueOrDefault(node) is { Length: > 0 } m ? m : Spaced(raw);
+                taken.Add(set);
                 list.Add(new { id = node, name, count = ids.Count });
             }
 
